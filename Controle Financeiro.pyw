@@ -384,7 +384,7 @@ def atualizar_resumo(*args):
 
     label_credito = ttk.Label(
         frame_credito_header,
-        text=f"Faturas Cartão de Crédito total: {locale.currency(total_cartoes, grouping=True)}",
+        text=f"Faturas do Cartão de Crédito total: {locale.currency(total_cartoes, grouping=True)}",
         font=("Segoe UI", 12, "bold")
     )
     label_credito.grid(row=0, column=1, sticky="w")
