@@ -8,7 +8,11 @@ from PIL import Image, ImageTk
 import ttkbootstrap as tb
 from ttkbootstrap import Style
 from functools import partial
+import urllib.request
+import webbrowser
 from ttkbootstrap.constants import *
+
+VERSAO_ATUAL = "1.0.0"
 
 # Define BASE_DIR uma única vez
 BASE_DIR = os.path.join(os.path.expanduser("~"), "AppData", "Local", "ControleFinanceiro")
@@ -147,10 +151,30 @@ def criar_menu():
     menu_gerenciar.add_command(label="💳  Gerenciar Cartões", command=gerenciar_cartoes)
     menu_gerenciar.add_command(label="📂  Categorias de Gastos", command=abrir_gerenciador_categorias)
     menu_gerenciar.add_separator()
+    menu_gerenciar.add_command(label="🔄  Buscar Atualização", command=buscar_atualizacao)
+    menu_gerenciar.add_separator()
     menu_gerenciar.add_command(label="🗑️  Zerar Aplicativo", command=zerar_tudo)
 
     menubar.add_cascade(label="⚙️  Gerenciar", menu=menu_gerenciar)
     app.config(menu=menubar)
+
+def buscar_atualizacao():
+    url_versao = "https://raw.githubusercontent.com/paulohidalgosantos/Controle-Financeiro/main/versao.txt"
+    try:
+        with urllib.request.urlopen(url_versao, timeout=5) as response:
+            versao_remota = response.read().decode().strip()
+
+        if versao_remota > VERSAO_ATUAL:
+            if messagebox.askyesno("Atualização disponível", f"Nova versão {versao_remota} disponível.\nDeseja baixar agora?"):
+                abrir_link_download()
+        else:
+            messagebox.showinfo("Atualização", "Você já está usando a versão mais recente.")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Erro ao verificar atualização:\n{e}")
+
+def abrir_link_download():
+    # Você pode personalizar isso com o link do executável mais recente
+    webbrowser.open("https://github.com/paulohidalgosantos/Controle-Financeiro/releases/latest")
 
 # Chamar a função para exibir o menu
 criar_menu()
