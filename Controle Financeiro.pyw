@@ -12,7 +12,7 @@ import urllib.request
 import webbrowser
 from ttkbootstrap.constants import *
 
-VERSAO_ATUAL = "1.0.0"
+VERSAO_ATUAL = "0.9.0"
 
 # Define BASE_DIR uma única vez
 BASE_DIR = os.path.join(os.path.expanduser("~"), "AppData", "Local", "ControleFinanceiro")
