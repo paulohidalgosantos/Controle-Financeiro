@@ -12,7 +12,7 @@ import urllib.request
 import webbrowser
 from ttkbootstrap.constants import *
 
-VERSAO_ATUAL = "1.0.1"
+VERSAO_ATUAL = "1.0.2"
 
 # Define BASE_DIR uma única vez
 BASE_DIR = os.path.join(os.path.expanduser("~"), "AppData", "Local", "ControleFinanceiro")
@@ -165,16 +165,62 @@ def buscar_atualizacao():
             versao_remota = response.read().decode().strip()
 
         if versao_remota > VERSAO_ATUAL:
-            if messagebox.askyesno("Atualização disponível", f"Nova versão {versao_remota} disponível.\nDeseja baixar agora?"):
-                abrir_link_download()
+            if messagebox.askyesno("Atualização disponível", f"Nova versão {versao_remota} disponível.\nDeseja atualizar agora?"):
+                baixar_e_instalar_atualizacao()
         else:
             messagebox.showinfo("Atualização", "Você já está usando a versão mais recente.")
     except Exception as e:
         messagebox.showerror("Erro", f"Erro ao verificar atualização:\n{e}")
 
 def abrir_link_download():
-    # Você pode personalizar isso com o link do executável mais recente
-    webbrowser.open("https://github.com/paulohidalgosantos/Controle-Financeiro/releases/latest")
+    url_exe = "https://github.com/paulohidalgosantos/Controle-Financeiro/releases/download/v1.0.1/ControleFinanceiro.exe"
+    destino = os.path.join(os.path.dirname(sys.argv[0]), "Controle Financeiro.exe")
+
+    try:
+        with urllib.request.urlopen(url_exe) as response, open(destino, 'wb') as out_file:
+            out_file.write(response.read())
+
+        messagebox.showinfo("Download concluído", "Nova versão foi baixada como 'ControleFinanceiro_NOVO.exe'.\nFeche o app atual e execute o novo.")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Falha ao baixar nova versão:\n{e}")
+
+def baixar_e_instalar_atualizacao():
+    try:
+        url_download = "https://github.com/paulohidalgosantos/Controle-Financeiro/releases/latest/download/ControleFinanceiro.exe"
+
+        # Caminho do executável atual
+        caminho_atual = os.path.abspath(sys.argv[0])
+        pasta = os.path.dirname(caminho_atual)
+        nome_atual = os.path.basename(caminho_atual)
+
+        # Caminho do novo arquivo temporário
+        novo_caminho_temp = os.path.join(pasta, "__novo_update__.exe")
+
+        # Baixa o novo executável
+        with urllib.request.urlopen(url_download) as response, open(novo_caminho_temp, 'wb') as out_file:
+            out_file.write(response.read())
+
+        # Script de atualização
+        script = f"""
+        @echo off
+        timeout /t 2 >nul
+        del "{caminho_atual}" >nul 2>&1
+        rename "{novo_caminho_temp}" "{nome_atual}"
+        start "" "{os.path.join(pasta, nome_atual)}"
+        del %0
+        """
+
+        # Salva o script .bat
+        caminho_bat = os.path.join(pasta, "atualizar.bat")
+        with open(caminho_bat, "w") as f:
+            f.write(script)
+
+        # Executa o script e fecha o app
+        os.startfile(caminho_bat)
+        app.destroy()
+
+    except Exception as e:
+        messagebox.showerror("Erro", f"Erro ao atualizar:\n{e}")
 
 # Chamar a função para exibir o menu
 criar_menu()
@@ -467,8 +513,8 @@ def atualizar_resumo(*args):
     saldo_atual = info["conta"] + total_receitas - total_gastos - total_credito - total_pagas
     saldo_final = info["conta"] + total_receitas - total_gastos - total_credito - total_todas
 
-    ttk.Label(frame_resumo, text=f"Saldo Atual (contas pagas): {locale.currency(saldo_atual, grouping=True)}", font=("Segoe UI", 11, "bold"), foreground="#006400").pack(anchor="w")
-    ttk.Label(frame_resumo, text=f"Saldo Final (considerando todas contas): {locale.currency(saldo_final, grouping=True)}", font=("Segoe UI", 11, "bold"), foreground="#004085").pack(anchor="w", pady=3)
+    ttk.Label(frame_resumo, text=f"Saldo Atual: {locale.currency(saldo_atual, grouping=True)}", font=("Segoe UI", 11, "bold"), foreground="#006400").pack(anchor="w")
+    ttk.Label(frame_resumo, text=f"Saldo Final: {locale.currency(saldo_final, grouping=True)}", font=("Segoe UI", 11, "bold"), foreground="#004085").pack(anchor="w", pady=3)
 
     # GASTOS POR TIPO (Diário + Cartão)
     ttk.Label(frame_resumo, text="Gastos por Tipo:", font=("Segoe UI", 11, "bold"), foreground="#000000").pack(anchor="w", pady=(10, 2))
