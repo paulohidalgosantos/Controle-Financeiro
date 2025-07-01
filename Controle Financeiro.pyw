@@ -10,7 +10,7 @@ from ttkbootstrap import Style
 from ttkbootstrap.constants import *
 from functools import partial
 
-VERSAO_ATUAL = "1.0.2"
+VERSAO_ATUAL = "1.0.3"
 
 def recurso_caminho(relativo):
     """Obtém caminho correto para recursos mesmo após empacotado com PyInstaller."""
@@ -567,23 +567,39 @@ def atualizar_resumo(*args):
     )
 
     # --- CARTÃO DE CRÉDITO (agora só cabeçalho e abre janela detalhada) ---
-    total_cartoes = sum(c["valor"] for c in info["cartao_credito"])
+    # Agrupar gastos por cartão para verificar status "Pago"
+    gastos_por_cartao = {}
+    for c in info["cartao_credito"]:
+        nome = c["cartao"]
+        gastos_por_cartao.setdefault(nome, []).append(c)
+
+    def cartao_pago(lista_gastos_cartao):
+        return all(g.get("status") == "Pago" for g in lista_gastos_cartao)
+
+    total_cartao_pago = 0
+    total_cartao_todos = 0
+    for nome_cartao, lista_gastos_cartao in gastos_por_cartao.items():
+        total_gastos = sum(g["valor"] for g in lista_gastos_cartao)
+        total_cartao_todos += total_gastos
+        if cartao_pago(lista_gastos_cartao):
+            total_cartao_pago += total_gastos
+
     criar_cabecalho_com_detalhes(
         scroll_frame_credito,
         "Cartão de Crédito",
-        total_cartoes,
+        total_cartao_todos,
         adicionar_cartao_credito,
         abrir_cartao_credito_detalhado
     )
 
     # ------------------- RESUMO -------------------
+    total_receitas = sum(info["receitas"].values())
     total_gastos = sum(g["valor"] for g in info["gastos"])
-    total_credito = sum(c["valor"] for c in info["cartao_credito"] if c["mes"] == mes and c["ano"] == ano)
     total_pagas = sum(d["valor"] for d in info["despesas_fixas"] if d["status"] == "Pago")
     total_todas = sum(d["valor"] for d in info["despesas_fixas"])
 
-    saldo_atual = info["conta"] + total_receitas - total_gastos - total_credito - total_pagas
-    saldo_final = info["conta"] + total_receitas - total_gastos - total_credito - total_todas
+    saldo_atual = info["conta"] + total_receitas - total_gastos - total_cartao_pago - total_pagas
+    saldo_final = info["conta"] + total_receitas - total_gastos - total_cartao_todos - total_todas
 
     cor_saldo_atual = "#004085" if saldo_atual >= 0 else "#dc3545"  # azul se positivo, vermelho se negativo
     cor_saldo_final = "#004085" if saldo_final >= 0 else "#dc3545"
@@ -669,45 +685,13 @@ def criar_resumo_simples(container, titulo, total, comando_abrir):
     label.pack(side="left", anchor="w")
     label.bind("<Button-1>", lambda e: comando_abrir())
 
-def mostrar_gastos_detalhados():
-    global estado_expansao_gastos_diarios
-    estado_expansao_gastos_diarios = defaultdict(bool)
-
-    nova_janela = tk.Toplevel(app)
-    nova_janela.title("Gastos Diários Detalhados")
-
-    # Adicionar botão ➕ também aqui dentro
-    btn_adicionar = ttk.Button(nova_janela, text="➕ Adicionar Gasto Diário", command=lambda: adicionar_valor("Adicionar Gasto", "gasto"))
-    btn_adicionar.pack(pady=10)
-
-    largura = 500
-    altura = 600
-    x = (nova_janela.winfo_screenwidth() // 2) - (largura // 2)
-    y = (nova_janela.winfo_screenheight() // 2) - (altura // 2)
-    nova_janela.geometry(f"{largura}x{altura}+{x}+{y}")
-
-    canvas = tk.Canvas(nova_janela)
-    scrollbar = ttk.Scrollbar(nova_janela, orient="vertical", command=canvas.yview)
-    frame_container = ttk.Frame(canvas)
-
-    canvas.create_window((0, 0), window=frame_container, anchor="nw")
-    canvas.configure(yscrollcommand=scrollbar.set)
-
-    canvas.pack(side="left", fill="both", expand=True)
-    scrollbar.pack(side="right", fill="y")
-
-    def on_configure(event):
-        canvas.configure(scrollregion=canvas.bbox("all"))
-
-    frame_container.bind("<Configure>", on_configure)
-
+def _renderizar_gastos(container):
     mes = combo_mes.current() + 1
     ano = int(combo_ano.get())
     chave = get_chave(mes, ano)
-
     info = dados[chave]
-    gastos_ordenados = sorted(enumerate(info["gastos"]), key=lambda x: (x[1].get("dia", 99), x[1].get("tipo", ""), x[1].get("descricao", "")))
 
+    gastos_ordenados = sorted(enumerate(info["gastos"]), key=lambda x: (x[1].get("dia", 99), x[1].get("tipo", ""), x[1].get("descricao", "")))
     gastos_por_dia = defaultdict(list)
     for idx, gasto in gastos_ordenados:
         dia = gasto.get("dia", "??")
@@ -724,7 +708,7 @@ def mostrar_gastos_detalhados():
     for dia in sorted(gastos_por_dia):
         lista = gastos_por_dia[dia]
 
-        container_dia = ttk.Frame(frame_container)
+        container_dia = ttk.Frame(container)
         container_dia.pack(fill="x", pady=(5, 0))
 
         label_dia = ttk.Label(
@@ -767,40 +751,97 @@ def mostrar_gastos_detalhados():
                     btn_excluir.bind("<Button-1>", lambda e, idx=idx: excluir_gasto_diario(idx))
 
         label_dia.bind("<Button-1>", lambda e, f=frame_detalhes, d=dia: toggle_detalhes_gastos(f, d))
-
         if estado_expansao_gastos_diarios.get(dia):
             frame_detalhes.pack(fill="x", padx=10, pady=(5, 10))
 
-def abrir_cartao_credito_detalhado():
-    janela = tk.Toplevel(app)
-    janela.title("Cartões de Crédito Detalhados")
+def mostrar_gastos_detalhados():
+    global estado_expansao_gastos_diarios
+    estado_expansao_gastos_diarios = defaultdict(bool)
 
-    # Botão adicionar ➕ também aqui
-    btn_adicionar = ttk.Button(janela, text="➕ Adicionar Gasto no Cartão", command=adicionar_cartao_credito)
-    btn_adicionar.pack(pady=10)
+    nova_janela = tk.Toplevel(app)
+    nova_janela.title("Gastos Diários Detalhados")
 
-    largura, altura = 600, 500
-    x = (janela.winfo_screenwidth() // 2) - (largura // 2)
-    y = (janela.winfo_screenheight() // 2) - (altura // 2)
-    janela.geometry(f"{largura}x{altura}+{x}+{y}")
+    largura = 500
+    altura = 600
+    x = (nova_janela.winfo_screenwidth() // 2) - (largura // 2)
+    y = (nova_janela.winfo_screenheight() // 2) - (altura // 2)
+    nova_janela.geometry(f"{largura}x{altura}+{x}+{y}")
 
-    container = ttk.Frame(janela, padding=15)
-    container.pack(fill="both", expand=True)
+    # Frame do topo fixado no topo e centralizado
+    frame_topo = ttk.Frame(nova_janela)
+    frame_topo.pack(side="top", fill="x", pady=(10, 5))
 
-    canvas = tk.Canvas(container)
-    scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
-    scroll_frame = ttk.Frame(canvas)
+    frame_centro = ttk.Frame(frame_topo)
+    frame_centro.pack(expand=True)
 
-    scroll_frame.bind(
-        "<Configure>",
-        lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+    def recarregar_gastos():
+        for widget in frame_container.winfo_children():
+            widget.destroy()
+        _renderizar_gastos(frame_container)
+
+    btn_adicionar = ttk.Button(
+        frame_centro,
+        text="➕ Adicionar Gasto Diário",
+        command=lambda: adicionar_valor("Adicionar Gasto", "gasto", callback_apos_salvar=recarregar_gastos)
     )
+    btn_adicionar.pack()
 
-    canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+    # Canvas com scrollbar para os gastos detalhados
+    canvas = tk.Canvas(nova_janela)
+    scrollbar = ttk.Scrollbar(nova_janela, orient="vertical", command=canvas.yview)
+    frame_container = ttk.Frame(canvas)
+
+    canvas.create_window((0, 0), window=frame_container, anchor="nw")
     canvas.configure(yscrollcommand=scrollbar.set)
 
     canvas.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
+
+    frame_container.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+    # Funções para rolagem compatível
+    def _on_mousewheel(event):
+        if event.delta:
+            # Windows e macOS
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        elif event.num == 4:
+            # Linux scroll up
+            canvas.yview_scroll(-1, "units")
+        elif event.num == 5:
+            # Linux scroll down
+            canvas.yview_scroll(1, "units")
+
+    # Vincular os eventos ao canvas somente quando mouse estiver em cima
+    def _bind_mousewheel(event):
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)  # Windows e macOS
+        canvas.bind_all("<Button-4>", _on_mousewheel)    # Linux scroll up
+        canvas.bind_all("<Button-5>", _on_mousewheel)    # Linux scroll down
+
+    def _unbind_mousewheel(event):
+        canvas.unbind_all("<MouseWheel>")
+        canvas.unbind_all("<Button-4>")
+        canvas.unbind_all("<Button-5>")
+
+    canvas.bind("<Enter>", _bind_mousewheel)
+    canvas.bind("<Leave>", _unbind_mousewheel)
+
+    # Carrega os gastos inicialmente
+    recarregar_gastos()
+
+def marcar_cartao_como_pago(nome_cartao):
+    mes = combo_mes.current() + 1
+    ano = int(combo_ano.get())
+    chave = get_chave(mes, ano)
+    info = dados[chave]
+
+    for gasto in info["cartao_credito"]:
+        if gasto["cartao"] == nome_cartao and gasto["mes"] == mes and gasto["ano"] == ano:
+            gasto["status"] = "Pago"  # Marca o gasto como pago
+
+    salvar_dados()
+    atualizar_resumo()
+
+def _renderizar_gastos_cartao(scroll_frame):
 
     mes = combo_mes.current() + 1
     ano = int(combo_ano.get())
@@ -811,10 +852,60 @@ def abrir_cartao_credito_detalhado():
     if "estado_expansao_cartoes" not in globals():
         estado_expansao_cartoes = {}
 
+    # Limpa o container antes de renderizar
+    for w in scroll_frame.winfo_children():
+        w.destroy()
+
     gastos_por_cartao = {}
     for g in info["cartao_credito"]:
         nome = g["cartao"]
         gastos_por_cartao.setdefault(nome, []).append(g)
+
+    def criar_badge_status(parent, status, callback):
+        cores = {
+            "Pago": ("#28a745", "#218838"),
+            "Aberto": ("#dc3545", "#c82333")
+        }
+        cor_fundo, cor_hover = cores.get(status, ("#6c757d", "#5a6268"))
+        texto = "✔ Pago" if status == "Pago" else "⏳ Aberto"
+
+        try:
+            bg = parent.cget("background")
+        except tk.TclError:
+            bg = parent.winfo_toplevel().cget("background")
+
+        canvas = tk.Canvas(parent, width=90, height=28, highlightthickness=0, bg=bg)
+
+        raio = 10
+        x0, y0, x1, y1 = 2, 2, 88, 26
+
+        def ret_arredondado(c, x0, y0, x1, y1, r, fill):
+            c.create_arc(x0, y0, x0+2*r, y0+2*r, start=90, extent=90, fill=fill, outline=fill)
+            c.create_arc(x1-2*r, y0, x1, y0+2*r, start=0, extent=90, fill=fill, outline=fill)
+            c.create_arc(x0, y1-2*r, x0+2*r, y1, start=180, extent=90, fill=fill, outline=fill)
+            c.create_arc(x1-2*r, y1-2*r, x1, y1, start=270, extent=90, fill=fill, outline=fill)
+            c.create_rectangle(x0+r, y0, x1-r, y1, fill=fill, outline=fill)
+            c.create_rectangle(x0, y0+r, x1, y1-r, fill=fill, outline=fill)
+
+        def desenhar(cor):
+            canvas.delete("all")
+            ret_arredondado(canvas, x0, y0, x1, y1, raio, cor)
+            canvas.create_text((x0+x1)//2, (y0+y1)//2, text=texto, fill="white", font=("Segoe UI", 10, "bold"))
+
+        desenhar(cor_fundo)
+
+        def on_enter(e):
+            desenhar(cor_hover)
+
+        def on_leave(e):
+            desenhar(cor_fundo)
+
+        canvas.bind("<Enter>", on_enter)
+        canvas.bind("<Leave>", on_leave)
+        canvas.bind("<Button-1>", lambda e: callback())
+        canvas.config(cursor="hand2")
+
+        return canvas  # Importante: não fazer pack aqui
 
     def toggle_detalhes(frame, label_widget, nome_cartao, total):
         if frame.winfo_ismapped():
@@ -836,23 +927,61 @@ def abrir_cartao_credito_detalhado():
             )
             estado_expansao_cartoes[nome_cartao] = True
 
+    def alternar_status_cartao(nome_cartao_local):
+        mes_atual = combo_mes.current() + 1
+        ano_atual = int(combo_ano.get())
+        chave_atual = get_chave(mes_atual, ano_atual)
+        info_atual = dados[chave_atual]
+
+        lista_gastos = [g for g in info_atual["cartao_credito"] if g["cartao"] == nome_cartao_local]
+
+        novo_status = "Aberto" if all(g.get("status") == "Pago" for g in lista_gastos) else "Pago"
+
+        for g in lista_gastos:
+            g["status"] = novo_status
+
+        salvar_dados()
+        atualizar_resumo()
+        _renderizar_gastos_cartao(scroll_frame)
+
     for nome_cartao in sorted(gastos_por_cartao):
         lista = sorted(gastos_por_cartao[nome_cartao], key=lambda x: (x["ano"], x["mes"], x["dia"]))
         total_cartao = sum(g["valor"] for g in lista)
 
+        status_cartao = "Pago" if all(g.get("status") == "Pago" for g in lista) else "Aberto"
+
         container_cartao = ttk.Frame(scroll_frame)
         container_cartao.pack(fill="x", padx=10, pady=(8, 0))
 
+        frame_titulo = ttk.Frame(container_cartao)
+        frame_titulo.pack(fill="x", padx=0)
+
+        # Configurar grid para alinhamento fixo
+        frame_titulo.columnconfigure(0, weight=1)
+
         label = ttk.Label(
-            container_cartao,
-            text=f"💳 {nome_cartao}: {locale.currency(total_cartao, grouping=True)} ▶",
+            frame_titulo,
+            text=f"💳 {nome_cartao}: {locale.currency(total_cartao, grouping=True)}",
             foreground="#0d6efd",
             font=("Segoe UI Semibold", 12),
             cursor="hand2"
         )
-        label.pack(anchor="w", fill="x")
+        label.grid(row=0, column=0, sticky="we")
+
+        badge = criar_badge_status(frame_titulo, status_cartao, partial(alternar_status_cartao, nome_cartao))
+        badge.grid(row=0, column=1, sticky="e", padx=(1,0))
+
+        label.bind(
+            "<Enter>", lambda e: label.config(foreground="#0a58ca"))
+        label.bind(
+            "<Leave>", lambda e: label.config(foreground="#0d6efd"))
 
         frame_detalhes = ttk.Frame(container_cartao, padding=(10, 5))
+
+        label.bind(
+            "<Button-1>",
+            lambda e, f=frame_detalhes, l=label, n=nome_cartao, t=total_cartao: toggle_detalhes(f, l, n, t)
+        )
 
         for c in lista:
             parcela = "Fixo" if c.get("fixo") else (f"Parcela {c['parcela_atual']}/{c['total_parcelas']}" if c["total_parcelas"] > 1 else "À vista")
@@ -874,17 +1003,78 @@ def abrir_cartao_credito_detalhado():
             btn_excluir.pack(side="left")
             btn_excluir.bind("<Button-1>", lambda e, g=c: excluir_gasto_cartao(g))
 
-        label.bind("<Button-1>", lambda e, f=frame_detalhes, l=label, n=nome_cartao, t=total_cartao: toggle_detalhes(f, l, n, t))
-
         if estado_expansao_cartoes.get(nome_cartao):
             frame_detalhes.pack(fill="x", padx=20, pady=(0, 10))
+
+def abrir_cartao_credito_detalhado():
+    janela = tk.Toplevel(app)
+    janela.title("Cartões de Crédito Detalhados")
+
+    largura, altura = 600, 500
+    x = (janela.winfo_screenwidth() // 2) - (largura // 2)
+    y = (janela.winfo_screenheight() // 2) - (altura // 2)
+    janela.geometry(f"{largura}x{altura}+{x}+{y}")
+
+    btn_adicionar = ttk.Button(janela, text="➕ Adicionar Gasto no Cartão",
+                              command=lambda: adicionar_cartao_credito(callback_apos_salvar=recarregar_gastos))
+    btn_adicionar.pack(pady=10)
+
+    container = ttk.Frame(janela, padding=15)
+    container.pack(fill="both", expand=True)
+
+    canvas = tk.Canvas(container)
+    scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+    scroll_frame = ttk.Frame(canvas)
+
+    scroll_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+    )
+
+    canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+
+    def recarregar_gastos():
+        _renderizar_gastos_cartao(scroll_frame)
+
+    # Funções para rolagem compatível
+    def _on_mousewheel(event):
+        if event.delta:
+            # Windows e macOS
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        elif event.num == 4:
+            # Linux scroll up
+            canvas.yview_scroll(-1, "units")
+        elif event.num == 5:
+            # Linux scroll down
+            canvas.yview_scroll(1, "units")
+
+    # Vincular os eventos ao canvas somente quando mouse estiver em cima
+    def _bind_mousewheel(event):
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)  # Windows e macOS
+        canvas.bind_all("<Button-4>", _on_mousewheel)    # Linux scroll up
+        canvas.bind_all("<Button-5>", _on_mousewheel)    # Linux scroll down
+
+    def _unbind_mousewheel(event):
+        canvas.unbind_all("<MouseWheel>")
+        canvas.unbind_all("<Button-4>")
+        canvas.unbind_all("<Button-5>")
+
+    canvas.bind("<Enter>", _bind_mousewheel)
+    canvas.bind("<Leave>", _unbind_mousewheel)
+
+    # Renderiza pela primeira vez
+    _renderizar_gastos_cartao(scroll_frame)
 
 def atualizar_tipo_gasto_combo(combobox):
     combobox["values"] = tipos_gasto
     if tipos_gasto:
         combobox.set(tipos_gasto[0])
 
-def adicionar_valor(titulo, tipo):
+def adicionar_valor(titulo, tipo, callback_apos_salvar=None):
     mes = combo_mes.current() + 1
     ano = int(combo_ano.get())
     chave = get_chave(mes, ano)
@@ -969,7 +1159,9 @@ def adicionar_valor(titulo, tipo):
             })
 
         atualizar_resumo()
-        janela.destroy()  # <- isso garante que sempre feche depois de salvar
+        if callback_apos_salvar:
+            callback_apos_salvar()
+        janela.destroy()
 
     ttk.Button(janela, text="Salvar", command=salvar).pack(pady=10)
     janela.bind("<Return>", lambda event: salvar())
@@ -1067,7 +1259,7 @@ def excluir_receita(nome_receita):
             salvar_dados()
             atualizar_resumo()
 
-def adicionar_cartao_credito():
+def adicionar_cartao_credito(callback_apos_salvar=None):
     if not cartoes:
         mostrar_erro_toplevel("Nenhum cartão cadastrado. Cadastre um cartão primeiro.", app)
         return
@@ -1200,6 +1392,8 @@ def adicionar_cartao_credito():
             })
 
         atualizar_resumo()
+        if callback_apos_salvar:
+            callback_apos_salvar()
         janela.destroy()
 
     botao_salvar = ttk.Button(janela, text="Salvar", command=salvar)
@@ -1427,55 +1621,102 @@ def excluir_gasto_cartao(gasto):
     salvar_dados()
     atualizar_resumo()
 
-def exibir_cartao():
-    ttk.Label(scroll_frame_credito, text="Faturas Cartão", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=10, pady=(0, 5))
+def excluir_cartao(janela_anterior):
+    if not cartoes:
+        messagebox.showinfo("Aviso", "Nenhum cartão cadastrado para excluir.")
+        janela_anterior.destroy()
+        return
 
-    gastos_cartao_por_nome = {}
-    for c in info["cartao_credito"]:
-        nome = c["cartao"]
-        if nome not in gastos_cartao_por_nome:
-            gastos_cartao_por_nome[nome] = []
-        gastos_cartao_por_nome[nome].append(c)
+    nova_janela = tk.Toplevel(app)
+    nova_janela.title("Excluir Cartão")
+    largura = 300
+    altura = 150
+    x = (nova_janela.winfo_screenwidth() // 2) - (largura // 2)
+    y = (nova_janela.winfo_screenheight() // 2) - (altura // 2)
+    nova_janela.geometry(f"{largura}x{altura}+{x}+{y}")
+    nova_janela.attributes("-topmost", True)
+    nova_janela.grab_set()
 
-    def toggle_detalhes(frame, label_widget, nome, total):
-        if frame.winfo_ismapped():
-            frame.pack_forget()
-            label_widget.config(text=f"💳 {nome}: {locale.currency(total, grouping=True)} ▶", foreground="blue", font=("Segoe UI", 10, "bold"))
-            estado_expansao_cartoes[nome] = False
+    janela_anterior.destroy()
+
+    ttk.Label(nova_janela, text="Selecione o cartão para excluir:").pack(pady=5)
+
+    # Função para atualizar o combobox com os nomes atuais dos cartões
+    def atualizar_combo():
+        nomes_cartoes = [c['nome'] for c in cartoes]
+        combo_cartoes['values'] = nomes_cartoes
+        if nomes_cartoes:
+            combo_cartoes.current(0)
         else:
-            frame.pack(fill="x", padx=20, pady=(0, 10))
-            label_widget.config(text=f"💳 {nome}: {locale.currency(total, grouping=True)} ▼", foreground="blue", font=("Segoe UI", 10, "bold"))
-            estado_expansao_cartoes[nome] = True
+            combo_cartoes.set('')
 
-    for nome_cartao in sorted(gastos_cartao_por_nome):
-        lista = sorted(gastos_cartao_por_nome[nome_cartao], key=lambda x: (x["ano"], x["mes"], x["dia"]))
-        total_cartao = sum(g["valor"] for g in lista)
+    combo_cartoes = ttk.Combobox(nova_janela, state="readonly")
+    combo_cartoes.pack(pady=5)
 
-        container_cartao = ttk.Frame(scroll_frame_credito)
-        container_cartao.pack(fill="x", padx=10, pady=(8, 0))
+    atualizar_combo()  # inicializa com os nomes atuais
 
-        label = ttk.Label(container_cartao,
-            text=f"💳 {nome_cartao}: {locale.currency(total_cartao, grouping=True)} ▶",
-            foreground="blue", font=("Segoe UI", 10, "bold"), cursor="hand2")
-        label.pack(anchor="w", fill="x")
+    def mostrar_erro_toplevel(mensagem):
+        erro_janela = tk.Toplevel(nova_janela)
+        erro_janela.title("Erro")
+        erro_janela.geometry("300x100")
+        erro_janela.attributes("-topmost", True)
+        erro_janela.grab_set()
 
-        frame_detalhes = ttk.Frame(container_cartao)
+        ttk.Label(erro_janela, text=mensagem, foreground="red", wraplength=280).pack(pady=10)
+        ttk.Button(erro_janela, text="OK", command=erro_janela.destroy).pack()
 
-        for c in lista:
-            parcela = f"Parcela {c['parcela_atual']}/{c['total_parcelas']}" if c["total_parcelas"] > 1 else "À vista"
-            data = f"{c['dia']:02d}/{c['mes']:02d}/{c['ano']}"
-            tipo = c.get("tipo", "Indefinido")
-            valor_fmt = locale.currency(c["valor"], grouping=True)
+        erro_janela.update_idletasks()
+        w = erro_janela.winfo_width()
+        h = erro_janela.winfo_height()
+        x = nova_janela.winfo_rootx() + (nova_janela.winfo_width() // 2) - (w // 2)
+        y = nova_janela.winfo_rooty() + (nova_janela.winfo_height() // 2) - (h // 2)
+        erro_janela.geometry(f"+{x}+{y}")
 
-            ttk.Label(frame_detalhes,
-                text=f"• {data}: {c['descricao']} - {valor_fmt} ({parcela}) - Tipo: {tipo}",
-                font=("Segoe UI", 9)).pack(anchor="w", padx=10, pady=1)
+    def confirmar_exclusao(cartao_nome, ao_confirmar):
+        confirm_janela = tk.Toplevel(nova_janela)
+        confirm_janela.title("Confirmar Exclusão")
+        confirm_janela.geometry("320x140")
+        confirm_janela.grab_set()
+        confirm_janela.attributes("-topmost", True)
 
-        label.bind("<Button-1>", lambda e, f=frame_detalhes, l=label, n=nome_cartao, t=total_cartao: toggle_detalhes(f, l, n, t))
+        ttk.Label(confirm_janela,
+                  text=f"Excluir o cartão '{cartao_nome}'?\nGastos anteriores permanecerão.",
+                  wraplength=280).pack(pady=15)
 
-        if estado_expansao_cartoes.get(nome_cartao):
-            frame_detalhes.pack(fill="x", padx=20, pady=(0, 10))
-            label.config(text=f"💳 {nome_cartao}: {locale.currency(total_cartao, grouping=True)} ▼", foreground="blue", font=("Segoe UI", 10, "bold"))
+        botoes = ttk.Frame(confirm_janela)
+        botoes.pack()
+
+        ttk.Button(botoes, text="Sim", command=lambda: (confirm_janela.destroy(), ao_confirmar())).pack(side="left", padx=10)
+        ttk.Button(botoes, text="Não", command=confirm_janela.destroy).pack(side="right", padx=10)
+
+        # Centralizar
+        confirm_janela.update_idletasks()
+        w = confirm_janela.winfo_width()
+        h = confirm_janela.winfo_height()
+        x = nova_janela.winfo_rootx() + (nova_janela.winfo_width() // 2) - (w // 2)
+        y = nova_janela.winfo_rooty() + (nova_janela.winfo_height() // 2) - (h // 2)
+        confirm_janela.geometry(f"+{x}+{y}")
+
+    def excluir():
+        idx = combo_cartoes.current()
+        if idx == -1:
+            mostrar_erro_toplevel("Selecione um cartão.")
+            return
+
+        cartao_excluir = cartoes[idx]
+
+        def apos_confirmar():
+            cartoes.remove(cartao_excluir)
+            atualizar_resumo()
+            exibir_cartao()
+            atualizar_combo()  # Atualiza a lista do combo para refletir a exclusão
+            if not cartoes:
+                # Se não tiver mais cartões, fecha a janela
+                nova_janela.destroy()
+
+        confirmar_exclusao(cartao_excluir['nome'], apos_confirmar)
+
+    ttk.Button(nova_janela, text="Excluir", command=excluir).pack(pady=10)
 
 def adicionar_cartao(janela_anterior):
     janela_anterior.destroy()
@@ -1547,11 +1788,10 @@ def adicionar_cartao(janela_anterior):
 
 def excluir_cartao(janela_anterior):
     if not cartoes:
-        messagebox.showinfo("Aviso", "Nenhum cartão cadastrado para excluir.", parent=janela_anterior)
+        messagebox.showinfo("Aviso", "Nenhum cartão cadastrado para excluir.")
+        janela_anterior.destroy()
         return
 
-
-    # Crie a nova janela antes de destruir a anterior
     nova_janela = tk.Toplevel(app)
     nova_janela.title("Excluir Cartão")
     largura = 300
@@ -1566,10 +1806,20 @@ def excluir_cartao(janela_anterior):
 
     ttk.Label(nova_janela, text="Selecione o cartão para excluir:").pack(pady=5)
 
-    nomes_cartoes = [c['nome'] for c in cartoes]
-    combo_cartoes = ttk.Combobox(nova_janela, values=nomes_cartoes, state="readonly")
+    # Cria o combobox vazio (será preenchido abaixo)
+    combo_cartoes = ttk.Combobox(nova_janela, state="readonly")
     combo_cartoes.pack(pady=5)
-    combo_cartoes.current(0)
+
+    # Atualiza os cartões no combobox
+    def atualizar_combo():
+        nomes_cartoes = [c['nome'] for c in cartoes]
+        combo_cartoes['values'] = nomes_cartoes
+        if nomes_cartoes:
+            combo_cartoes.current(0)
+        else:
+            combo_cartoes.set('')
+
+    atualizar_combo()
 
     def mostrar_erro_toplevel(mensagem):
         erro_janela = tk.Toplevel(nova_janela)
@@ -1596,7 +1846,7 @@ def excluir_cartao(janela_anterior):
         confirm_janela.attributes("-topmost", True)
 
         ttk.Label(confirm_janela,
-                  text=f"Excluir o cartão '{cartao_nome}'?\nGastos anteriores permanecerão.",
+                  text=f"Excluir o cartão '{cartao_nome}'?\nGastos antigos serão mantidos.",
                   wraplength=280).pack(pady=15)
 
         botoes = ttk.Frame(confirm_janela)
@@ -1605,7 +1855,6 @@ def excluir_cartao(janela_anterior):
         ttk.Button(botoes, text="Sim", command=lambda: (confirm_janela.destroy(), ao_confirmar())).pack(side="left", padx=10)
         ttk.Button(botoes, text="Não", command=confirm_janela.destroy).pack(side="right", padx=10)
 
-        # Centralizar
         confirm_janela.update_idletasks()
         w = confirm_janela.winfo_width()
         h = confirm_janela.winfo_height()
@@ -1620,12 +1869,21 @@ def excluir_cartao(janela_anterior):
             return
 
         cartao_excluir = cartoes[idx]
-        confirmar_exclusao(cartao_excluir['nome'], lambda: (
-            cartoes.remove(cartao_excluir),
-            atualizar_resumo(),
-            exibir_cartao(),
-            nova_janela.destroy()
-        ))
+
+        def apos_confirmar():
+            # Remove o cartão da lista
+            cartoes.remove(cartao_excluir)
+
+            # Atualiza tudo que depende dos cartões
+            salvar_dados()
+            atualizar_resumo()
+            atualizar_combo()
+
+            # Se nenhum cartão sobrou, fecha a janela
+            if not cartoes:
+                nova_janela.destroy()
+
+        confirmar_exclusao(cartao_excluir['nome'], apos_confirmar)
 
     ttk.Button(nova_janela, text="Excluir", command=excluir).pack(pady=10)
 
