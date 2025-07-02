@@ -9,8 +9,9 @@ import ttkbootstrap as tb
 from ttkbootstrap import Style
 from ttkbootstrap.constants import *
 from functools import partial
+from tkinter import filedialog
 
-VERSAO_ATUAL = "1.0.3"
+VERSAO_ATUAL = "1.0.4"
 
 def recurso_caminho(relativo):
     """Obtém caminho correto para recursos mesmo após empacotado com PyInstaller."""
@@ -192,6 +193,7 @@ os.makedirs(BASE_DIR, exist_ok=True)
 
 # Define pasta oculta para salvar os dados
 PASTA_OCULTA = os.path.join(BASE_DIR, ".dados_ocultos")
+ARQ_ULTIMA_SELECAO = os.path.join(PASTA_OCULTA, "ultima_selecao.json")
 
 if not os.path.exists(PASTA_OCULTA):
     os.mkdir(PASTA_OCULTA)
@@ -208,10 +210,12 @@ estado_expansao_cartoes = {}
 estado_expansao_dias = {}
 estado_expansao_gastos_diarios = {}
 cartoes_fechamento = {}
+janela_gastos_detalhados = None
+inicio_uso = None
 
 # Funções de dados
 def carregar_dados():
-    global dados, cartoes, contas_fixas_modelo, tipos_gasto
+    global dados, cartoes, contas_fixas_modelo, tipos_gasto, inicio_uso
     if os.path.exists(CAMINHO_ARQUIVO):
         try:
             with open(CAMINHO_ARQUIVO, "r", encoding="utf-8") as f:
@@ -227,20 +231,24 @@ def carregar_dados():
                 if not tipos_gasto:
                     tipos_gasto = TIPOS_GASTO_PADRAO.copy()
 
+                inicio_uso = conteudo.get("inicio_uso", None)
+                if inicio_uso:
+                    inicio_uso = tuple(inicio_uso)
+
         except Exception as e:
             print(f"Erro ao carregar dados: {e}")
-            # Inicializar com valores padrão em caso de erro
             dados = {}
             cartoes = []
             contas_fixas_modelo = []
             tipos_gasto = TIPOS_GASTO_PADRAO.copy()
+            inicio_uso = None
             messagebox.showwarning("Aviso", f"Erro ao carregar dados salvos. Iniciando com dados limpos.\nErro: {e}")
     else:
-        # Arquivo não existe, inicializar com valores padrão
         dados = {}
         cartoes = []
         contas_fixas_modelo = []
         tipos_gasto = TIPOS_GASTO_PADRAO.copy()
+        inicio_uso = None
 
 def salvar_dados():
     try:
@@ -253,7 +261,8 @@ def salvar_dados():
                 "dados": dados_para_salvar,
                 "cartoes": cartoes,
                 "contas_fixas_modelo": contas_fixas_modelo,
-                "tipos_gasto": tipos_gasto
+                "tipos_gasto": tipos_gasto,
+                "inicio_uso": inicio_uso
             }, f, ensure_ascii=False, indent=4)
     except Exception as e:
         print("Erro ao salvar dados:", e)
@@ -285,6 +294,66 @@ except tk.TclError:
 carregar_dados()
 
 # ---- Funções usadas no menu ----
+def definir_inicio_uso():
+    global inicio_uso
+
+    janela = tk.Toplevel(app)
+    janela.title("Definir Início do Uso")
+    janela.geometry("250x230")
+    janela.resizable(False, False)
+    janela.grab_set()
+    janela.transient(app)
+
+    # Centralizar a janela na tela
+    janela.update_idletasks()
+    largura = 250
+    altura = 230
+    x = (janela.winfo_screenwidth() // 2) - (largura // 2)
+    y = (janela.winfo_screenheight() // 2) - (altura // 2)
+    janela.geometry(f"{largura}x{altura}+{x}+{y}")
+
+    ttk.Label(janela, text="Mês de início (1-12):").pack(pady=(15, 5))
+    entry_mes = ttk.Entry(janela, justify="center")
+    entry_mes.pack()
+
+    ttk.Label(janela, text="Ano de início (ex: 2023):").pack(pady=(10, 5))
+    entry_ano = ttk.Entry(janela, justify="center")
+    entry_ano.pack()
+
+    def confirmar():
+        try:
+            mes_str = entry_mes.get().strip()
+            ano_str = entry_ano.get().strip()
+
+            if not mes_str or not ano_str:
+                raise ValueError("Os campos não podem estar vazios")
+
+            mes = int(mes_str)
+            ano = int(ano_str)
+
+            if mes < 1 or mes > 12:
+                raise ValueError("Mês inválido (deve ser entre 1 e 12)")
+            if ano < 1900 or ano > 2100:
+                raise ValueError("Ano inválido (deve estar entre 1900 e 2100)")
+
+            global inicio_uso
+            inicio_uso = (mes, ano)
+            salvar_dados()
+            messagebox.showinfo("Início definido", f"Início do uso definido para {mes:02d}/{ano}")
+            janela.destroy()
+            atualizar_resumo()
+
+        except ValueError as ve:
+            messagebox.showerror("Erro de validação", f"Erro: {ve}")
+
+        except Exception:
+            messagebox.showerror("Erro", "Valor inválido. Por favor, preencha os campos corretamente.")
+
+    btn_confirmar = ttk.Button(janela, text="Confirmar", command=confirmar)
+    btn_confirmar.pack(pady=15)
+
+    # Permitir salvar com Enter
+    janela.bind('<Return>', lambda event: confirmar())
 
 def criar_menu():
     menubar = tk.Menu(app)
@@ -297,8 +366,18 @@ def criar_menu():
     menu_gerenciar.add_separator()
     menu_gerenciar.add_command(label="🗑️  Zerar Aplicativo", command=zerar_tudo)
 
+    # Novas opções de exportar/importar logo abaixo de zerar
+    menu_gerenciar.add_separator()
+    menu_gerenciar.add_command(label="📤 Exportar Dados", command=exportar_dados)
+    menu_gerenciar.add_command(label="📥 Importar Dados", command=importar_dados)
+
+    # Botão para definir início do uso
+    menu_gerenciar.add_separator()
+    menu_gerenciar.add_command(label="📅 Definir Início do Uso", command=definir_inicio_uso)
+
     menubar.add_cascade(label="⚙️  Gerenciar", menu=menu_gerenciar)
     app.config(menu=menubar)
+
 
 def gerenciar_cartoes():
     janela = tk.Toplevel(app)
@@ -355,6 +434,61 @@ def zerar_tudo():
     else:
         messagebox.showerror("Senha incorreta", "Senha inválida. Ação cancelada.")
 
+def exportar_dados():
+    caminho = filedialog.asksaveasfilename(
+        title="Exportar dados",
+        defaultextension=".json",
+        filetypes=[("Arquivo JSON", "*.json")],
+        initialfile="controle_financeiro_backup.json"
+    )
+    if not caminho:
+        return  # Cancelou
+
+    try:
+        dados_para_salvar = {
+            f"{mes:02d}-{ano}": valor
+            for (mes, ano), valor in dados.items()
+        }
+        with open(caminho, "w", encoding="utf-8") as f:
+            json.dump({
+                "dados": dados_para_salvar,
+                "cartoes": cartoes,
+                "contas_fixas_modelo": contas_fixas_modelo,
+                "tipos_gasto": tipos_gasto
+            }, f, ensure_ascii=False, indent=4)
+        messagebox.showinfo("Exportação", "Dados exportados com sucesso!")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Falha ao exportar dados:\n{e}")
+
+# --- Função para importar dados ---
+def importar_dados():
+    caminho = filedialog.askopenfilename(
+        title="Importar dados",
+        filetypes=[("Arquivo JSON", "*.json")]
+    )
+    if not caminho:
+        return  # Cancelou
+
+    try:
+        with open(caminho, "r", encoding="utf-8") as f:
+            conteudo = json.load(f)
+
+        dados_carregados = conteudo.get("dados", {})
+        global dados, cartoes, contas_fixas_modelo, tipos_gasto
+
+        dados = {
+            tuple(map(int, chave.split("-"))): valor
+            for chave, valor in dados_carregados.items()
+        }
+        cartoes = conteudo.get("cartoes", [])
+        contas_fixas_modelo = conteudo.get("contas_fixas_modelo", [])
+        tipos_gasto = conteudo.get("tipos_gasto", TIPOS_GASTO_PADRAO.copy())
+
+        salvar_dados()
+        atualizar_resumo()  # Atualiza interface, certifique que essa função existe no seu código
+        messagebox.showinfo("Importação", "Dados importados com sucesso!")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Falha ao importar dados:\n{e}")
 # Chamar a função para exibir o menu
 criar_menu()
 
@@ -369,37 +503,98 @@ app.protocol("WM_DELETE_WINDOW", ao_fechar)
 def get_chave(mes, ano):
     return (mes, ano)
 
+def configurar_inicio_uso():
+    def confirmar():
+        try:
+            m = int(combo_mes.get())
+            a = int(entry_ano.get())
+            if not (1 <= m <= 12):
+                raise ValueError
+            if not (1900 <= a <= 2100):
+                raise ValueError
+            global inicio_uso
+            inicio_uso = (m, a)
+            salvar_dados()
+            messagebox.showinfo("Configuração salva", f"Início do uso definido para {m:02d}/{a}")
+            janela.destroy()
+            atualizar_resumo()
+        except Exception:
+            messagebox.showerror("Erro", "Informe um mês e ano válidos.")
+
+    janela = tk.Toplevel(app)
+    janela.title("Configurar Início do Uso")
+    janela.geometry("250x140")
+    janela.grab_set()
+    janela.resizable(False, False)
+
+    ttk.Label(janela, text="Mês de início (1-12):").pack(pady=(10,0))
+    combo_mes = ttk.Combobox(janela, values=list(range(1, 13)), state="readonly")
+    combo_mes.pack(pady=5)
+    if inicio_uso:
+        combo_mes.current(inicio_uso[0]-1)
+    else:
+        combo_mes.current(0)
+
+    ttk.Label(janela, text="Ano de início:").pack(pady=(10,0))
+    entry_ano = ttk.Entry(janela)
+    entry_ano.pack(pady=5)
+    if inicio_uso:
+        entry_ano.insert(0, str(inicio_uso[1]))
+    else:
+        entry_ano.insert(0, str(datetime.now().year))
+
+    btn = ttk.Button(janela, text="Confirmar", command=confirmar)
+    btn.pack(pady=10)
+
 def inicializar_mes(mes, ano):
+    global inicio_uso
     chave = get_chave(mes, ano)
-    
+
+    # Se início definido, não inicializar meses anteriores — apenas cria dados vazios para consulta
+    if inicio_uso:
+        mes_inicio, ano_inicio = inicio_uso
+        if (ano < ano_inicio) or (ano == ano_inicio and mes < mes_inicio):
+            if chave not in dados:
+                dados[chave] = {
+                    "receitas": {},
+                    "conta": 0.0,
+                    "despesas_fixas": [],
+                    "gastos": [],
+                    "cartao_credito": [],
+                    "tipos": []
+                }
+            return dados[chave]
+
     if chave not in dados:
-        # Inicializa o mês com estrutura padrão
+        despesas_validas = []
+        for d in contas_fixas_modelo:
+            mes_inicio_d, ano_inicio_d = d.get("inicio", (1, 1900))
+            if (ano_inicio_d, mes_inicio_d) <= (ano, mes):
+                despesas_validas.append(d)
+
         dados[chave] = {
             "receitas": {},
             "conta": 0.0,
-            "despesas_fixas": copy.deepcopy(contas_fixas_modelo),
+            "despesas_fixas": copy.deepcopy(despesas_validas),
             "gastos": [],
             "cartao_credito": [],
             "tipos": []
         }
-        
-        # Calcula mês e ano anterior, com ciclo anual
+
         mes_ant = mes - 1 if mes > 1 else 12
         ano_ant = ano if mes > 1 else ano - 1
         chave_anterior = get_chave(mes_ant, ano_ant)
-        
+
         if chave_anterior in dados:
             info_ant = dados[chave_anterior]
 
             total_receitas_ant = sum(info_ant["receitas"].values())
             total_gastos_ant = sum(g["valor"] for g in info_ant["gastos"])
             total_credito_ant = sum(c["valor"] for c in info_ant["cartao_credito"])
-            # Aqui consideramos TODAS as despesas fixas (pagas ou não)
             total_despesas_todas_ant = sum(d["valor"] for d in info_ant["despesas_fixas"])
 
             saldo_final_mes_anterior = info_ant["conta"] + total_receitas_ant - total_gastos_ant - total_credito_ant - total_despesas_todas_ant
 
-            # Ajusta saldo inicial do mês atual para saldo final do mês anterior
             dados[chave]["conta"] = saldo_final_mes_anterior
 
     return dados[chave]
@@ -407,10 +602,11 @@ def inicializar_mes(mes, ano):
 def calcular_saldo(chave):
     info = dados[chave]
     total_receitas = sum(info["receitas"].values())
-    total_despesas_pagas = sum([d["valor"] for d in info["despesas_fixas"] if d["status"] == "Pago"])
-    total_gastos = sum([g["valor"] for g in info["gastos"]])
-    total_credito = sum([c["valor"] for c in info["cartao_credito"] if c["mes"] == chave[0] and c["ano"] == chave[1]])
-    return total_receitas - total_gastos - total_credito - total_despesas_pagas
+    total_despesas_pagas = sum(d["valor"] for d in info["despesas_fixas"] if d["status"] == "Pago")
+    total_gastos = sum(g["valor"] for g in info["gastos"])
+    total_credito_pago = sum(c["valor"] for c in info["cartao_credito"]
+                             if c["mes"] == chave[0] and c["ano"] == chave[1] and c.get("status") == "Pago")
+    return total_receitas - total_gastos - total_credito_pago - total_despesas_pagas
 
 def recalcular_saldo_inicial(chave):
     mes, ano = chave
@@ -523,7 +719,15 @@ def atualizar_resumo(*args):
     frame_despesa_conteudo.pack(fill="x")
 
     despesas_ordenadas = sorted(info["despesas_fixas"], key=lambda d: d.get("vencimento", 99))
-    dia_atual = datetime.today().day
+    from calendar import monthrange
+
+    # Data selecionada no combobox
+    data_selecionada = datetime(ano, mes, 1)
+    ultimo_dia_mes = monthrange(ano, mes)[1]
+    hoje = datetime.today()
+
+    # É hoje o mês selecionado?
+    mes_atual = (hoje.year == ano and hoje.month == mes)
 
     for d in despesas_ordenadas:
         idx_real = info["despesas_fixas"].index(d)
@@ -533,12 +737,17 @@ def atualizar_resumo(*args):
         if status == "Pago":
             cor = "#28a745"  # Verde
         elif status == "Aberto":
-            if isinstance(vencimento, int) and vencimento < dia_atual:
-                cor = "#b22222"  # Vermelho: vencido
+            if isinstance(vencimento, int):
+                # Criar data do vencimento dentro do mês/ano selecionado
+                venc_data = datetime(ano, mes, min(vencimento, ultimo_dia_mes))
+                if venc_data < hoje:
+                    cor = "#b22222"  # Vermelho: já venceu
+                else:
+                    cor = "#6c757d"  # Cinza escuro: ainda dentro do prazo
             else:
-                cor = "#000000"  # Preto: ainda não venceu
+                cor = "#6c757d"  # Indefinido: cor neutra
         else:
-            cor = "#000000"  # Default
+            cor = "#000000"
 
         texto = f"{d['descricao']} - {locale.currency(d['valor'], grouping=True)} - Venc: {vencimento} ({d['status']})"
 
@@ -598,8 +807,8 @@ def atualizar_resumo(*args):
     total_pagas = sum(d["valor"] for d in info["despesas_fixas"] if d["status"] == "Pago")
     total_todas = sum(d["valor"] for d in info["despesas_fixas"])
 
-    saldo_atual = info["conta"] + total_receitas - total_gastos - total_cartao_pago - total_pagas
-    saldo_final = info["conta"] + total_receitas - total_gastos - total_cartao_todos - total_todas
+    saldo_atual = total_receitas - total_gastos - total_cartao_pago - total_pagas
+    saldo_final = total_receitas - total_gastos - total_cartao_todos - total_todas
 
     cor_saldo_atual = "#004085" if saldo_atual >= 0 else "#dc3545"  # azul se positivo, vermelho se negativo
     cor_saldo_final = "#004085" if saldo_final >= 0 else "#dc3545"
@@ -669,6 +878,10 @@ def atualizar_resumo(*args):
             font=("Segoe UI", 10)
         ).grid(row=linha, column=coluna, sticky="w", padx=15, pady=2)
 
+    # Salvar último mês/ano selecionado
+    with open("ultima_selecao.json", "w") as f:
+        json.dump({"mes": mes, "ano": ano}, f)
+
     app.update()
 
 def criar_resumo_simples(container, titulo, total, comando_abrir):
@@ -685,7 +898,7 @@ def criar_resumo_simples(container, titulo, total, comando_abrir):
     label.pack(side="left", anchor="w")
     label.bind("<Button-1>", lambda e: comando_abrir())
 
-def _renderizar_gastos(container):
+def _renderizar_gastos(container, recarregar_callback=None, janela_detalhes=None):
     mes = combo_mes.current() + 1
     ano = int(combo_ano.get())
     chave = get_chave(mes, ano)
@@ -744,11 +957,12 @@ def _renderizar_gastos(container):
 
                     btn_editar = ttk.Label(container_gasto, text="🖉", font=("Segoe UI", 10), foreground="#0d6efd", cursor="hand2")
                     btn_editar.pack(side="left", padx=8)
-                    btn_editar.bind("<Button-1>", lambda e, idx=idx: editar_gasto_diario(idx))
+                    btn_editar.bind("<Button-1>", lambda e, idx=idx: editar_gasto_diario(idx, callback_apos_salvar=recarregar_callback))
 
                     btn_excluir = ttk.Label(container_gasto, text="🗑️", font=("Segoe UI", 10), foreground="#dc3545", cursor="hand2")
                     btn_excluir.pack(side="left")
-                    btn_excluir.bind("<Button-1>", lambda e, idx=idx: excluir_gasto_diario(idx))
+                    btn_excluir.bind("<Button-1>", lambda e, idx=idx: excluir_gasto_diario(
+                        idx, janela_detalhes=janela_detalhes, callback_apos_excluir=recarregar_callback))
 
         label_dia.bind("<Button-1>", lambda e, f=frame_detalhes, d=dia: toggle_detalhes_gastos(f, d))
         if estado_expansao_gastos_diarios.get(dia):
@@ -761,23 +975,27 @@ def mostrar_gastos_detalhados():
     nova_janela = tk.Toplevel(app)
     nova_janela.title("Gastos Diários Detalhados")
 
-    largura = 500
-    altura = 600
+    largura = 800
+    altura = 800
     x = (nova_janela.winfo_screenwidth() // 2) - (largura // 2)
     y = (nova_janela.winfo_screenheight() // 2) - (altura // 2)
     nova_janela.geometry(f"{largura}x{altura}+{x}+{y}")
 
-    # Frame do topo fixado no topo e centralizado
     frame_topo = ttk.Frame(nova_janela)
     frame_topo.pack(side="top", fill="x", pady=(10, 5))
-
     frame_centro = ttk.Frame(frame_topo)
     frame_centro.pack(expand=True)
+
+    frame_container = ttk.Frame()  # Placeholder
 
     def recarregar_gastos():
         for widget in frame_container.winfo_children():
             widget.destroy()
-        _renderizar_gastos(frame_container)
+        _renderizar_gastos(
+            container=frame_container,
+            recarregar_callback=recarregar_gastos,
+            janela_detalhes=nova_janela
+        )
 
     btn_adicionar = ttk.Button(
         frame_centro,
@@ -786,7 +1004,6 @@ def mostrar_gastos_detalhados():
     )
     btn_adicionar.pack()
 
-    # Canvas com scrollbar para os gastos detalhados
     canvas = tk.Canvas(nova_janela)
     scrollbar = ttk.Scrollbar(nova_janela, orient="vertical", command=canvas.yview)
     frame_container = ttk.Frame(canvas)
@@ -799,33 +1016,12 @@ def mostrar_gastos_detalhados():
 
     frame_container.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
 
-    # Funções para rolagem compatível
+    # Rolagem do mouse
     def _on_mousewheel(event):
-        if event.delta:
-            # Windows e macOS
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        elif event.num == 4:
-            # Linux scroll up
-            canvas.yview_scroll(-1, "units")
-        elif event.num == 5:
-            # Linux scroll down
-            canvas.yview_scroll(1, "units")
+        canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
-    # Vincular os eventos ao canvas somente quando mouse estiver em cima
-    def _bind_mousewheel(event):
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)  # Windows e macOS
-        canvas.bind_all("<Button-4>", _on_mousewheel)    # Linux scroll up
-        canvas.bind_all("<Button-5>", _on_mousewheel)    # Linux scroll down
+    canvas.bind_all("<MouseWheel>", _on_mousewheel)
 
-    def _unbind_mousewheel(event):
-        canvas.unbind_all("<MouseWheel>")
-        canvas.unbind_all("<Button-4>")
-        canvas.unbind_all("<Button-5>")
-
-    canvas.bind("<Enter>", _bind_mousewheel)
-    canvas.bind("<Leave>", _unbind_mousewheel)
-
-    # Carrega os gastos inicialmente
     recarregar_gastos()
 
 def marcar_cartao_como_pago(nome_cartao):
@@ -841,7 +1037,7 @@ def marcar_cartao_como_pago(nome_cartao):
     salvar_dados()
     atualizar_resumo()
 
-def _renderizar_gastos_cartao(scroll_frame):
+def _renderizar_gastos_cartao(scroll_frame, parent_janela=None, recarregar_callback=None):
 
     mes = combo_mes.current() + 1
     ano = int(combo_ano.get())
@@ -905,7 +1101,7 @@ def _renderizar_gastos_cartao(scroll_frame):
         canvas.bind("<Button-1>", lambda e: callback())
         canvas.config(cursor="hand2")
 
-        return canvas  # Importante: não fazer pack aqui
+        return canvas
 
     def toggle_detalhes(frame, label_widget, nome_cartao, total):
         if frame.winfo_ismapped():
@@ -942,7 +1138,10 @@ def _renderizar_gastos_cartao(scroll_frame):
 
         salvar_dados()
         atualizar_resumo()
-        _renderizar_gastos_cartao(scroll_frame)
+        _renderizar_gastos_cartao(scroll_frame, parent_janela=parent_janela, recarregar_callback=recarregar_callback)
+
+    def recarregar_gastos():
+        _renderizar_gastos_cartao(scroll_frame, parent_janela=parent_janela, recarregar_callback=recarregar_callback)
 
     for nome_cartao in sorted(gastos_por_cartao):
         lista = sorted(gastos_por_cartao[nome_cartao], key=lambda x: (x["ano"], x["mes"], x["dia"]))
@@ -956,7 +1155,6 @@ def _renderizar_gastos_cartao(scroll_frame):
         frame_titulo = ttk.Frame(container_cartao)
         frame_titulo.pack(fill="x", padx=0)
 
-        # Configurar grid para alinhamento fixo
         frame_titulo.columnconfigure(0, weight=1)
 
         label = ttk.Label(
@@ -971,10 +1169,8 @@ def _renderizar_gastos_cartao(scroll_frame):
         badge = criar_badge_status(frame_titulo, status_cartao, partial(alternar_status_cartao, nome_cartao))
         badge.grid(row=0, column=1, sticky="e", padx=(1,0))
 
-        label.bind(
-            "<Enter>", lambda e: label.config(foreground="#0a58ca"))
-        label.bind(
-            "<Leave>", lambda e: label.config(foreground="#0d6efd"))
+        label.bind("<Enter>", lambda e: label.config(foreground="#0a58ca"))
+        label.bind("<Leave>", lambda e: label.config(foreground="#0d6efd"))
 
         frame_detalhes = ttk.Frame(container_cartao, padding=(10, 5))
 
@@ -997,35 +1193,40 @@ def _renderizar_gastos_cartao(scroll_frame):
 
             btn_editar = ttk.Label(container, text="🖉", font=("Segoe UI", 11), foreground="#0d6efd", cursor="hand2")
             btn_editar.pack(side="left", padx=8)
-            btn_editar.bind("<Button-1>", lambda e, g=c: editar_gasto_cartao(g))
+            btn_editar.bind("<Button-1>", partial(lambda e, gasto: editar_gasto_cartao(gasto, callback_apos_salvar=recarregar_callback), gasto=c))
 
             btn_excluir = ttk.Label(container, text="🗑️", font=("Segoe UI", 11), foreground="#dc3545", cursor="hand2")
             btn_excluir.pack(side="left")
-            btn_excluir.bind("<Button-1>", lambda e, g=c: excluir_gasto_cartao(g))
+            btn_excluir.bind("<Button-1>", partial(lambda e, gasto: excluir_gasto_cartao(gasto, parent_janela=parent_janela, callback_apos_excluir=recarregar_gastos), gasto=c))
 
         if estado_expansao_cartoes.get(nome_cartao):
             frame_detalhes.pack(fill="x", padx=20, pady=(0, 10))
 
 def abrir_cartao_credito_detalhado():
-    janela = tk.Toplevel(app)
-    janela.title("Cartões de Crédito Detalhados")
+    global janela_gastos_detalhados
+    janela_gastos_detalhados = tk.Toplevel(app)
+    janela_gastos_detalhados.title("Cartões de Crédito Detalhados")
 
-    largura, altura = 600, 500
-    x = (janela.winfo_screenwidth() // 2) - (largura // 2)
-    y = (janela.winfo_screenheight() // 2) - (altura // 2)
-    janela.geometry(f"{largura}x{altura}+{x}+{y}")
+    largura, altura = 800, 800
+    x = (janela_gastos_detalhados.winfo_screenwidth() // 2) - (largura // 2)
+    y = (janela_gastos_detalhados.winfo_screenheight() // 2) - (altura // 2)
+    janela_gastos_detalhados.geometry(f"{largura}x{altura}+{x}+{y}")
 
-    btn_adicionar = ttk.Button(janela, text="➕ Adicionar Gasto no Cartão",
-                              command=lambda: adicionar_cartao_credito(callback_apos_salvar=recarregar_gastos))
+    btn_adicionar = ttk.Button(
+        janela_gastos_detalhados,
+        text="➕ Adicionar Gasto no Cartão",
+        command=lambda: adicionar_cartao_credito(callback_apos_salvar=recarregar_gastos)
+    )
     btn_adicionar.pack(pady=10)
 
-    container = ttk.Frame(janela, padding=15)
+    container = ttk.Frame(janela_gastos_detalhados, padding=15)
     container.pack(fill="both", expand=True)
 
     canvas = tk.Canvas(container)
     scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
     scroll_frame = ttk.Frame(canvas)
 
+    # Atualiza a região de rolagem sempre que o conteúdo mudar
     scroll_frame.bind(
         "<Configure>",
         lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
@@ -1037,26 +1238,23 @@ def abrir_cartao_credito_detalhado():
     canvas.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
 
+    # Função que recarrega os gastos na janela
     def recarregar_gastos():
-        _renderizar_gastos_cartao(scroll_frame)
+        _renderizar_gastos_cartao(scroll_frame, parent_janela=janela_gastos_detalhados, recarregar_callback=recarregar_gastos)
 
-    # Funções para rolagem compatível
+    # Funções para rolagem com mouse wheel compatível Windows/Linux/Mac
     def _on_mousewheel(event):
         if event.delta:
-            # Windows e macOS
             canvas.yview_scroll(int(-1*(event.delta/120)), "units")
         elif event.num == 4:
-            # Linux scroll up
             canvas.yview_scroll(-1, "units")
         elif event.num == 5:
-            # Linux scroll down
             canvas.yview_scroll(1, "units")
 
-    # Vincular os eventos ao canvas somente quando mouse estiver em cima
     def _bind_mousewheel(event):
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)  # Windows e macOS
-        canvas.bind_all("<Button-4>", _on_mousewheel)    # Linux scroll up
-        canvas.bind_all("<Button-5>", _on_mousewheel)    # Linux scroll down
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        canvas.bind_all("<Button-4>", _on_mousewheel)
+        canvas.bind_all("<Button-5>", _on_mousewheel)
 
     def _unbind_mousewheel(event):
         canvas.unbind_all("<MouseWheel>")
@@ -1066,8 +1264,8 @@ def abrir_cartao_credito_detalhado():
     canvas.bind("<Enter>", _bind_mousewheel)
     canvas.bind("<Leave>", _unbind_mousewheel)
 
-    # Renderiza pela primeira vez
-    _renderizar_gastos_cartao(scroll_frame)
+    # Carrega a lista inicial de gastos
+    recarregar_gastos()
 
 def atualizar_tipo_gasto_combo(combobox):
     combobox["values"] = tipos_gasto
@@ -1166,28 +1364,23 @@ def adicionar_valor(titulo, tipo, callback_apos_salvar=None):
     ttk.Button(janela, text="Salvar", command=salvar).pack(pady=10)
     janela.bind("<Return>", lambda event: salvar())
 
-def editar_gasto_diario(idx):
+def editar_gasto_diario(idx, callback_apos_salvar=None):
     mes = combo_mes.current() + 1
     ano = int(combo_ano.get())
     info = inicializar_mes(mes, ano)
-    
+
     if idx < 0 or idx >= len(info["gastos"]):
         messagebox.showerror("Erro", "Índice de gasto inválido")
         return
-    
+
     gasto = info["gastos"][idx]
 
     janela = tk.Toplevel(app)
     janela.title("Editar Gasto Diário")
 
-    largura = 400
-    altura = 200
-
-    largura_tela = janela.winfo_screenwidth()
-    altura_tela = janela.winfo_screenheight()
-    x = (largura_tela // 2) - (largura // 2)
-    y = (altura_tela // 2) - (altura // 2)
-
+    largura, altura = 400, 200
+    x = (janela.winfo_screenwidth() // 2) - (largura // 2)
+    y = (janela.winfo_screenheight() // 2) - (altura // 2)
     janela.geometry(f"{largura}x{altura}+{x}+{y}")
     janela.resizable(False, False)
 
@@ -1201,14 +1394,14 @@ def editar_gasto_diario(idx):
     entry_valor.pack(padx=10, pady=5, fill="x")
     entry_valor.insert(0, str(gasto["valor"]))
 
-    def salvar(event=None):  # Permite ser chamada pelo botão e pelo evento Enter
+    def salvar(event=None):
         nova_desc = entry_descricao.get().strip()
         try:
             novo_valor = float(entry_valor.get().replace(",", "."))
         except:
             messagebox.showerror("Erro", "Valor inválido")
             return
-        
+
         if not nova_desc:
             messagebox.showerror("Erro", "Descrição não pode estar vazia")
             return
@@ -1219,32 +1412,36 @@ def editar_gasto_diario(idx):
         salvar_dados()
         janela.destroy()
         atualizar_resumo()
+        if callback_apos_salvar:
+            callback_apos_salvar()
 
-    btn_salvar = ttk.Button(janela, text="Salvar", command=salvar)
-    btn_salvar.pack(pady=10)
-
-    # Liga tecla Enter para salvar
-    janela.bind('<Return>', salvar)
-
-    # Opcional: foca no campo descrição para digitar direto
+    ttk.Button(janela, text="Salvar", command=salvar).pack(pady=10)
+    janela.bind("<Return>", salvar)
     entry_descricao.focus_set()
 
-def excluir_gasto_diario(idx):
+def excluir_gasto_diario(idx, janela_detalhes=None, callback_apos_excluir=None):
     mes = combo_mes.current() + 1
     ano = int(combo_ano.get())
     info = inicializar_mes(mes, ano)
 
     if idx < 0 or idx >= len(info["gastos"]):
-        messagebox.showerror("Erro", "Índice de gasto inválido")
+        messagebox.showerror("Erro", "Índice de gasto inválido", parent=janela_detalhes)
         return
 
     gasto = info["gastos"][idx]
 
-    resposta = messagebox.askyesno("Confirmação", f"Excluir gasto '{gasto['descricao']}' no dia {gasto['dia']}?")
+    resposta = messagebox.askyesno(
+        "Confirmação",
+        f"Excluir gasto '{gasto['descricao']}' no dia {gasto['dia']}?",
+        parent=janela_detalhes
+    )
+
     if resposta:
         info["gastos"].pop(idx)
         salvar_dados()
         atualizar_resumo()
+        if callback_apos_excluir:
+            callback_apos_excluir()
 
 def excluir_receita(nome_receita):
     mes = combo_mes.current() + 1
@@ -1258,6 +1455,43 @@ def excluir_receita(nome_receita):
             del info["receitas"][nome_receita]
             salvar_dados()
             atualizar_resumo()
+
+def excluir_despesa_fixa(idx):
+    mes = combo_mes.current() + 1
+    ano = int(combo_ano.get())
+    chave_atual = get_chave(mes, ano)
+
+    if chave_atual not in dados:
+        return
+
+    try:
+        descricao_target = dados[chave_atual]["despesas_fixas"][idx]["descricao"]
+    except IndexError:
+        return
+
+    confirmar = messagebox.askyesno(
+        "Confirmação",
+        f"Deseja realmente excluir a despesa fixa '{descricao_target}' a partir de {mes:02d}/{ano}?"
+    )
+
+    if not confirmar:
+        return  # Usuário cancelou
+
+    for ano_loop in range(ano, 2101):
+        for mes_loop in range(1, 13):
+            if ano_loop == ano and mes_loop < mes:
+                continue
+
+            chave = get_chave(mes_loop, ano_loop)
+            if chave not in dados:
+                continue
+
+            dados[chave]["despesas_fixas"] = [
+                d for d in dados[chave]["despesas_fixas"]
+                if d.get("descricao") != descricao_target
+            ]
+
+    atualizar_resumo()
 
 def adicionar_cartao_credito(callback_apos_salvar=None):
     if not cartoes:
@@ -1281,6 +1515,17 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
     janela.attributes("-topmost", True)
     janela.grab_set()
 
+    # Tentar carregar a última seleção salva
+    try:
+        with open(ARQ_ULTIMA_SELECAO, "r", encoding="utf-8") as f:
+            ultima = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        ultima = {}
+
+    ultimo_cartao = ultima.get("cartao", cartoes[0]["nome"])
+    ultimo_tipo = ultima.get("tipo_gasto", tipos_gasto[0])
+
+    # Widgets da janela
     ttk.Label(janela, text="Descrição:").pack(pady=2)
     entrada_desc = ttk.Entry(janela)
     entrada_desc.pack(pady=2)
@@ -1300,16 +1545,17 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
 
     ttk.Label(janela, text="Tipo de Gasto:").pack(pady=2)
     combo_tipo = ttk.Combobox(janela, values=tipos_gasto, state="readonly")
-    combo_tipo.set(tipos_gasto[0])
+    # Setar última seleção, se válida, ou padrão
+    combo_tipo.set(ultimo_tipo if ultimo_tipo in tipos_gasto else tipos_gasto[0])
     combo_tipo.pack(pady=2)
 
     ttk.Label(janela, text="Cartão:").pack(pady=2)
     nomes_cartoes = [c["nome"] for c in cartoes]
     cartao_combo = ttk.Combobox(janela, values=nomes_cartoes, state="readonly")
-    cartao_combo.set(nomes_cartoes[0])
+    # Setar última seleção, se válida, ou padrão
+    cartao_combo.set(ultimo_cartao if ultimo_cartao in nomes_cartoes else nomes_cartoes[0])
     cartao_combo.pack(pady=2)
 
-    # Checkbutton para gasto fixo
     fixo_var = tk.BooleanVar()
     check_fixo = ttk.Checkbutton(janela, text="Gasto Fixo (repetir todo mês)", variable=fixo_var)
     check_fixo.pack(pady=4)
@@ -1320,10 +1566,10 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
         dia = int(data_str[:2])
         mes = int(data_str[2:4])
         ano = int(data_str[4:])
-        datetime(ano, mes, dia)
+        datetime(ano, mes, dia)  # valida data
         return dia, mes, ano
 
-    def salvar():
+    def salvar(event=None):
         desc = entrada_desc.get().strip()
         valor_raw = entrada_valor.get().strip()
         parcelas_raw = entrada_parcelas.get().strip()
@@ -1357,12 +1603,8 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
             mostrar_erro_toplevel(f"Dados inválidos: {str(e)}", janela)
             return
 
-        # Define quantas vezes adicionar o gasto
-        if fixo:
-            meses_repeticao = 24  # Define por quantos meses repetir
-            parcelas = 1  # sobrescreve para garantir que será à vista
-        else:
-            meses_repeticao = parcelas
+        meses_repeticao = 24 if fixo else parcelas
+        parcelas = 1 if fixo else parcelas
 
         for i in range(meses_repeticao):
             if dia > fechamento:
@@ -1388,8 +1630,22 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
                 "parcela_atual": i + 1 if not fixo else 0,
                 "total_parcelas": parcelas if not fixo else 0,
                 "tipo": tipo,
-                "fixo": fixo  # novo campo para identificar
+                "fixo": fixo
             })
+
+        # SALVAR a última seleção de cartão e tipo gasto
+        try:
+            ultima_selecao = {}
+            with open(ARQ_ULTIMA_SELECAO, "r", encoding="utf-8") as f:
+                ultima_selecao = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            ultima_selecao = {}
+
+        ultima_selecao["cartao"] = cartao
+        ultima_selecao["tipo_gasto"] = tipo
+
+        with open(ARQ_ULTIMA_SELECAO, "w", encoding="utf-8") as f:
+            json.dump(ultima_selecao, f, ensure_ascii=False, indent=4)
 
         atualizar_resumo()
         if callback_apos_salvar:
@@ -1398,7 +1654,8 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
 
     botao_salvar = ttk.Button(janela, text="Salvar", command=salvar)
     botao_salvar.pack(pady=(10, 15))
-    janela.bind_all("<Return>", lambda event: salvar())
+
+    janela.bind("<Return>", salvar)
 
 def mostrar_erro_toplevel(mensagem, parent):
     erro_janela = tk.Toplevel(parent)
@@ -1501,7 +1758,7 @@ def excluir_cartao(janela_anterior):
 
     ttk.Button(nova_janela, text="Excluir", command=excluir).pack(pady=10)
 
-def editar_gasto_cartao(gasto_original):
+def editar_gasto_cartao(gasto_original, callback_apos_salvar=None):
     janela = tk.Toplevel(app)
     janela.title("Editar Gasto no Cartão")
 
@@ -1580,12 +1837,18 @@ def editar_gasto_cartao(gasto_original):
         salvar_dados()
         atualizar_resumo()
         janela.destroy()
+        if callback_apos_salvar:
+            callback_apos_salvar()
 
     ttk.Button(janela, text="Salvar", command=salvar).pack(pady=(10, 20))
     janela.bind("<Return>", lambda e: salvar())
 
-def excluir_gasto_cartao(gasto):
-    resposta = messagebox.askyesno("Excluir Gasto", "Deseja excluir TODAS as parcelas deste gasto?")
+def excluir_gasto_cartao(gasto, parent_janela=None, callback_apos_excluir=None):
+    resposta = messagebox.askyesno(
+        "Excluir Gasto",
+        "Deseja excluir TODAS as parcelas deste gasto?",
+        parent=parent_janela
+    )
     if not resposta:
         return
 
@@ -1620,6 +1883,8 @@ def excluir_gasto_cartao(gasto):
 
     salvar_dados()
     atualizar_resumo()
+    if callback_apos_excluir:
+        callback_apos_excluir()
 
 def excluir_cartao(janela_anterior):
     if not cartoes:
@@ -1978,7 +2243,6 @@ def adicionar_despesa_fixa():
     x = (janela.winfo_screenwidth() // 2) - (largura // 2)
     y = (janela.winfo_screenheight() // 2) - (altura // 2)
     janela.geometry(f"{largura}x{altura}+{x}+{y}")
-    # Mantém a janela sempre em primeiro plano e bloqueia interação com outras janelas
     janela.attributes("-topmost", True)
     janela.grab_set()
 
@@ -1997,7 +2261,6 @@ def adicionar_despesa_fixa():
     def salvar():
         descricao = entrada_desc.get().strip()
 
-        # Verifica valor
         try:
             valor = float(entrada_valor.get().replace(",", "."))
         except ValueError:
@@ -2005,7 +2268,6 @@ def adicionar_despesa_fixa():
             entrada_valor.focus_set()
             return
 
-        # Verifica vencimento
         try:
             vencimento = int(entrada_venc.get())
             if not (1 <= vencimento <= 31):
@@ -2015,59 +2277,40 @@ def adicionar_despesa_fixa():
             entrada_venc.focus_set()
             return
 
-        # Verifica descrição
         if not descricao:
             messagebox.showerror("Erro", "Descrição não pode ser vazia.", parent=janela)
             entrada_desc.focus_set()
             return
 
-        nova = {"descricao": descricao, "valor": valor, "vencimento": vencimento, "status": "Aberto"}
+        mes_selecionado = combo_mes.current() + 1
+        ano_selecionado = int(combo_ano.get())
+
+        nova = {
+            "descricao": descricao,
+            "valor": valor,
+            "vencimento": vencimento,
+            "status": "Aberto",
+            "inicio": (ano_selecionado, mes_selecionado)  # <-- aqui ajustado para (ano, mes)
+        }
         contas_fixas_modelo.append(nova)
 
-        for ano in range(2023, 2031):
-            for mes in range(1, 13):
-                chave = get_chave(mes, ano)
-                if chave in dados:
-                    dados[chave]["despesas_fixas"].append(nova.copy())
+        ano = ano_selecionado
+        mes = mes_selecionado
+        while ano <= 2030:
+            chave = get_chave(mes, ano)
+            if chave in dados:
+                dados[chave]["despesas_fixas"].append(nova.copy())
+
+            mes += 1
+            if mes > 12:
+                mes = 1
+                ano += 1
 
         atualizar_resumo()
         janela.destroy()
 
     ttk.Button(janela, text="Salvar", command=salvar).pack(pady=10)
     janela.bind("<Return>", lambda event: salvar())
-
-    def excluir_despesa_fixa(indice):
-        mes = combo_mes.current() + 1
-        ano = int(combo_ano.get())
-        chave = get_chave(mes, ano)
-        info = inicializar_mes(mes, ano)
-
-        despesa = info["despesas_fixas"][indice]
-        descricao_alvo = despesa["descricao"]
-
-        confirmar = messagebox.askyesno("Excluir Despesa Fixa", f"Deseja excluir a despesa '{descricao_alvo}' deste mês e dos próximos?")
-        if not confirmar:
-            return
-
-        # Remove do mês atual
-        del info["despesas_fixas"][indice]
-
-        # Remove dos próximos 11 meses com a mesma descrição
-        for i in range(1, 12):
-            mes_futuro = mes + i
-            ano_futuro = ano
-            if mes_futuro > 12:
-                mes_futuro -= 12
-                ano_futuro += 1
-
-            info_futuro = inicializar_mes(mes_futuro, ano_futuro)
-
-            info_futuro["despesas_fixas"] = [
-                d for d in info_futuro["despesas_fixas"] if d["descricao"] != descricao_alvo
-            ]
-
-        salvar_dados()
-        atualizar_resumo()
 
 def editar_tipos_gastos(janela_anterior):
     global tipos_gasto
@@ -2154,13 +2397,25 @@ frame_selecao.pack(pady=10)
 meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
          "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 combo_mes = ttk.Combobox(frame_selecao, values=meses, state="readonly", width=12)
-combo_mes.current(datetime.now().month - 1)
-combo_mes.pack(side="left", padx=5)
-
 anos = [str(y) for y in range(2025, 2050)]
 combo_ano = ttk.Combobox(frame_selecao, values=anos, state="readonly", width=6)
-combo_ano.set(str(datetime.now().year))
+
+# ⬇️ Carregar última seleção salva, se existir
+try:
+    with open("ultima_selecao.json", "r") as f:
+        ultima_selecao = json.load(f)
+        mes_inicial = ultima_selecao.get("mes", datetime.now().month)
+        ano_inicial = ultima_selecao.get("ano", datetime.now().year)
+except Exception:
+    mes_inicial = datetime.now().month
+    ano_inicial = datetime.now().year
+
+combo_mes.current(mes_inicial - 1)
+combo_ano.set(str(ano_inicial))
+
+combo_mes.pack(side="left", padx=5)
 combo_ano.pack(side="left", padx=5)
+
 combo_mes.bind("<<ComboboxSelected>>", lambda e: atualizar_resumo())
 combo_ano.bind("<<ComboboxSelected>>", lambda e: atualizar_resumo())
 
