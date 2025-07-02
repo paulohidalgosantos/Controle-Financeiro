@@ -193,7 +193,6 @@ os.makedirs(BASE_DIR, exist_ok=True)
 
 # Define pasta oculta para salvar os dados
 PASTA_OCULTA = os.path.join(BASE_DIR, ".dados_ocultos")
-ARQ_ULTIMA_SELECAO = os.path.join(PASTA_OCULTA, "ultima_selecao.json")
 
 if not os.path.exists(PASTA_OCULTA):
     os.mkdir(PASTA_OCULTA)
@@ -212,10 +211,14 @@ estado_expansao_gastos_diarios = {}
 cartoes_fechamento = {}
 janela_gastos_detalhados = None
 inicio_uso = None
+ultima_selecao_cartao = None
+ultima_selecao_tipo = None
 
 # Funções de dados
 def carregar_dados():
     global dados, cartoes, contas_fixas_modelo, tipos_gasto, inicio_uso
+    global ultima_selecao_cartao, ultima_selecao_tipo, ultima_selecao_mes, ultima_selecao_ano
+
     if os.path.exists(CAMINHO_ARQUIVO):
         try:
             with open(CAMINHO_ARQUIVO, "r", encoding="utf-8") as f:
@@ -235,6 +238,12 @@ def carregar_dados():
                 if inicio_uso:
                     inicio_uso = tuple(inicio_uso)
 
+                ultima_selecao = conteudo.get("ultima_selecao", {})
+                ultima_selecao_cartao = ultima_selecao.get("cartao", None)
+                ultima_selecao_tipo = ultima_selecao.get("tipo_gasto", None)
+                ultima_selecao_mes = ultima_selecao.get("mes", None)
+                ultima_selecao_ano = ultima_selecao.get("ano", None)
+
         except Exception as e:
             print(f"Erro ao carregar dados: {e}")
             dados = {}
@@ -242,6 +251,10 @@ def carregar_dados():
             contas_fixas_modelo = []
             tipos_gasto = TIPOS_GASTO_PADRAO.copy()
             inicio_uso = None
+            ultima_selecao_cartao = None
+            ultima_selecao_tipo = None
+            ultima_selecao_mes = None
+            ultima_selecao_ano = None
             messagebox.showwarning("Aviso", f"Erro ao carregar dados salvos. Iniciando com dados limpos.\nErro: {e}")
     else:
         dados = {}
@@ -249,6 +262,10 @@ def carregar_dados():
         contas_fixas_modelo = []
         tipos_gasto = TIPOS_GASTO_PADRAO.copy()
         inicio_uso = None
+        ultima_selecao_cartao = None
+        ultima_selecao_tipo = None
+        ultima_selecao_mes = None
+        ultima_selecao_ano = None
 
 def salvar_dados():
     try:
@@ -262,7 +279,13 @@ def salvar_dados():
                 "cartoes": cartoes,
                 "contas_fixas_modelo": contas_fixas_modelo,
                 "tipos_gasto": tipos_gasto,
-                "inicio_uso": inicio_uso
+                "inicio_uso": inicio_uso,
+                "ultima_selecao": {
+                    "cartao": ultima_selecao_cartao,
+                    "tipo_gasto": ultima_selecao_tipo,
+                    "mes": ultima_selecao_mes,
+                    "ano": ultima_selecao_ano
+                }
             }, f, ensure_ascii=False, indent=4)
     except Exception as e:
         print("Erro ao salvar dados:", e)
@@ -878,9 +901,13 @@ def atualizar_resumo(*args):
             font=("Segoe UI", 10)
         ).grid(row=linha, column=coluna, sticky="w", padx=15, pady=2)
 
-    # Salvar último mês/ano selecionado
-    with open("ultima_selecao.json", "w") as f:
-        json.dump({"mes": mes, "ano": ano}, f)
+    # Atualiza a última seleção de mês/ano antes de salvar
+    global ultima_selecao_mes, ultima_selecao_ano
+    ultima_selecao_mes = mes
+    ultima_selecao_ano = ano
+
+    salvar_dados()  # Agora salva no mesmo JSON oculto
+
 
     app.update()
 
@@ -1494,6 +1521,8 @@ def excluir_despesa_fixa(idx):
     atualizar_resumo()
 
 def adicionar_cartao_credito(callback_apos_salvar=None):
+    global ultima_selecao_cartao, ultima_selecao_tipo
+
     if not cartoes:
         mostrar_erro_toplevel("Nenhum cartão cadastrado. Cadastre um cartão primeiro.", app)
         return
@@ -1515,15 +1544,9 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
     janela.attributes("-topmost", True)
     janela.grab_set()
 
-    # Tentar carregar a última seleção salva
-    try:
-        with open(ARQ_ULTIMA_SELECAO, "r", encoding="utf-8") as f:
-            ultima = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        ultima = {}
-
-    ultimo_cartao = ultima.get("cartao", cartoes[0]["nome"])
-    ultimo_tipo = ultima.get("tipo_gasto", tipos_gasto[0])
+    # Usar última seleção salva global (se existir)
+    ultimo_cartao = ultima_selecao_cartao if ultima_selecao_cartao in [c["nome"] for c in cartoes] else cartoes[0]["nome"]
+    ultimo_tipo = ultima_selecao_tipo if ultima_selecao_tipo in tipos_gasto else tipos_gasto[0]
 
     # Widgets da janela
     ttk.Label(janela, text="Descrição:").pack(pady=2)
@@ -1545,15 +1568,13 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
 
     ttk.Label(janela, text="Tipo de Gasto:").pack(pady=2)
     combo_tipo = ttk.Combobox(janela, values=tipos_gasto, state="readonly")
-    # Setar última seleção, se válida, ou padrão
-    combo_tipo.set(ultimo_tipo if ultimo_tipo in tipos_gasto else tipos_gasto[0])
+    combo_tipo.set(ultimo_tipo)
     combo_tipo.pack(pady=2)
 
     ttk.Label(janela, text="Cartão:").pack(pady=2)
     nomes_cartoes = [c["nome"] for c in cartoes]
     cartao_combo = ttk.Combobox(janela, values=nomes_cartoes, state="readonly")
-    # Setar última seleção, se válida, ou padrão
-    cartao_combo.set(ultimo_cartao if ultimo_cartao in nomes_cartoes else nomes_cartoes[0])
+    cartao_combo.set(ultimo_cartao)
     cartao_combo.pack(pady=2)
 
     fixo_var = tk.BooleanVar()
@@ -1570,6 +1591,8 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
         return dia, mes, ano
 
     def salvar(event=None):
+        global ultima_selecao_cartao, ultima_selecao_tipo
+
         desc = entrada_desc.get().strip()
         valor_raw = entrada_valor.get().strip()
         parcelas_raw = entrada_parcelas.get().strip()
@@ -1633,19 +1656,10 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
                 "fixo": fixo
             })
 
-        # SALVAR a última seleção de cartão e tipo gasto
-        try:
-            ultima_selecao = {}
-            with open(ARQ_ULTIMA_SELECAO, "r", encoding="utf-8") as f:
-                ultima_selecao = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            ultima_selecao = {}
-
-        ultima_selecao["cartao"] = cartao
-        ultima_selecao["tipo_gasto"] = tipo
-
-        with open(ARQ_ULTIMA_SELECAO, "w", encoding="utf-8") as f:
-            json.dump(ultima_selecao, f, ensure_ascii=False, indent=4)
+        # Atualiza as últimas seleções globais e salva tudo no arquivo oculto
+        ultima_selecao_cartao = cartao
+        ultima_selecao_tipo = tipo
+        salvar_dados()
 
         atualizar_resumo()
         if callback_apos_salvar:
