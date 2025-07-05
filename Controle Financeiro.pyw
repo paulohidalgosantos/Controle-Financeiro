@@ -11,7 +11,7 @@ from ttkbootstrap.constants import *
 from functools import partial
 from tkinter import filedialog
 
-VERSAO_ATUAL = "1.0.4"
+VERSAO_ATUAL = "1.0.5"
 
 def recurso_caminho(relativo):
     """Obtém caminho correto para recursos mesmo após empacotado com PyInstaller."""
@@ -266,6 +266,14 @@ def carregar_dados():
         ultima_selecao_tipo = None
         ultima_selecao_mes = None
         ultima_selecao_ano = None
+
+    # ✅ Corrige gastos antigos sem "status"
+    for key in dados:
+        for g in dados[key].get("cartao_credito", []):
+            if "status" not in g:
+                g["status"] = "Aberto"
+
+    salvar_dados()
 
 def salvar_dados():
     try:
@@ -1540,15 +1548,12 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
     x = (janela.winfo_screenwidth() // 2) - (largura // 2)
     y = (janela.winfo_screenheight() // 2) - (altura // 2)
     janela.geometry(f"{largura}x{altura}+{x}+{y}")
-
     janela.attributes("-topmost", True)
     janela.grab_set()
 
-    # Usar última seleção salva global (se existir)
     ultimo_cartao = ultima_selecao_cartao if ultima_selecao_cartao in [c["nome"] for c in cartoes] else cartoes[0]["nome"]
     ultimo_tipo = ultima_selecao_tipo if ultima_selecao_tipo in tipos_gasto else tipos_gasto[0]
 
-    # Widgets da janela
     ttk.Label(janela, text="Descrição:").pack(pady=2)
     entrada_desc = ttk.Entry(janela)
     entrada_desc.pack(pady=2)
@@ -1587,7 +1592,7 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
         dia = int(data_str[:2])
         mes = int(data_str[2:4])
         ano = int(data_str[4:])
-        datetime(ano, mes, dia)  # valida data
+        datetime(ano, mes, dia)
         return dia, mes, ano
 
     def salvar(event=None):
@@ -1653,14 +1658,13 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
                 "parcela_atual": i + 1 if not fixo else 0,
                 "total_parcelas": parcelas if not fixo else 0,
                 "tipo": tipo,
-                "fixo": fixo
+                "fixo": fixo,
+                "status": "Aberto"  # Adicionado aqui ✅
             })
 
-        # Atualiza as últimas seleções globais e salva tudo no arquivo oculto
         ultima_selecao_cartao = cartao
         ultima_selecao_tipo = tipo
         salvar_dados()
-
         atualizar_resumo()
         if callback_apos_salvar:
             callback_apos_salvar()
@@ -1668,7 +1672,6 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
 
     botao_salvar = ttk.Button(janela, text="Salvar", command=salvar)
     botao_salvar.pack(pady=(10, 15))
-
     janela.bind("<Return>", salvar)
 
 def mostrar_erro_toplevel(mensagem, parent):
@@ -1835,9 +1838,7 @@ def editar_gasto_cartao(gasto_original, callback_apos_salvar=None):
                         g["cartao"] == cartao and
                         g["dia"] == dia and
                         g["mes"] == mes_inicial and
-                        g["ano"] == ano_inicial and
-                        g.get("fixo", False) == fixo and
-                        (fixo or g.get("total_parcelas") == parcelas)
+                        g["ano"] == ano_inicial
                     )
                     if mesmo_gasto:
                         g["descricao"] = novo_desc
@@ -1867,13 +1868,29 @@ def excluir_gasto_cartao(gasto, parent_janela=None, callback_apos_excluir=None):
         return
 
     fixo = gasto.get("fixo", False)
-    parcelas = 24 if fixo else gasto.get("total_parcelas", 1)
+    total_parcelas = gasto.get("total_parcelas", 1)
+    parcelas = 24 if fixo else total_parcelas
 
-    dia = gasto["dia"]
-    mes_inicial = gasto["mes"]
-    ano_inicial = gasto["ano"]
-    cartao = gasto["cartao"]
+    # Recupera os dados da compra
+    dia = gasto.get("dia")
+    mes_compra = gasto.get("mes")
+    ano_compra = gasto.get("ano")
+    cartao = gasto.get("cartao")
+    descricao = gasto.get("descricao")
 
+    # 🧠 Calcula corretamente o mês/ano da fatura como no cadastro
+    cartao_info = next((c for c in cartoes if c["nome"] == cartao), None)
+    fechamento = cartao_info.get("fechamento", 1) if cartao_info else 1
+
+    if dia > fechamento:
+        mes_inicial = mes_compra + 1
+        ano_inicial = ano_compra + (1 if mes_inicial > 12 else 0)
+        mes_inicial = 1 if mes_inicial > 12 else mes_inicial
+    else:
+        mes_inicial = mes_compra
+        ano_inicial = ano_compra
+
+    # 🔁 Loop para excluir todas as parcelas (ou uma, se for à vista)
     for i in range(parcelas):
         mes_fatura = mes_inicial + i
         ano_fatura = ano_inicial + (mes_fatura - 1) // 12
@@ -1883,15 +1900,14 @@ def excluir_gasto_cartao(gasto, parent_janela=None, callback_apos_excluir=None):
         if chave_fatura in dados:
             nova_lista = []
             for g in dados[chave_fatura]["cartao_credito"]:
-                if not (
-                    g["descricao"] == gasto["descricao"]
-                    and g["cartao"] == cartao
-                    and g["dia"] == dia
-                    and g["mes"] == mes_inicial
-                    and g["ano"] == ano_inicial
-                    and g.get("fixo", False) == fixo
-                    and (fixo or g["total_parcelas"] == parcelas)
-                ):
+                mesmo_gasto = (
+                    g.get("descricao") == descricao and
+                    g.get("cartao") == cartao and
+                    g.get("dia") == dia and
+                    g.get("mes") == mes_compra and
+                    g.get("ano") == ano_compra
+                )
+                if not mesmo_gasto:
                     nova_lista.append(g)
             dados[chave_fatura]["cartao_credito"] = nova_lista
 
