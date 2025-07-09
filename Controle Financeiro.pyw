@@ -11,7 +11,7 @@ from ttkbootstrap.constants import *
 from functools import partial
 from tkinter import filedialog
 
-VERSAO_ATUAL = "1.0.5"
+VERSAO_ATUAL = "1.0.6"
 
 def recurso_caminho(relativo):
     """Obtém caminho correto para recursos mesmo após empacotado com PyInstaller."""
@@ -645,6 +645,16 @@ def recalcular_saldo_inicial(chave):
     ano_ant = ano if mes > 1 else ano - 1
     chave_anterior = (mes_ant, ano_ant)
 
+    if not inicio_uso:
+        return
+
+    mes_inicio, ano_inicio = inicio_uso
+
+    # Se o mês anterior for anterior ao início de uso, define saldo como 0
+    if (ano_ant < ano_inicio) or (ano_ant == ano_inicio and mes_ant < mes_inicio):
+        dados[chave]["conta"] = 0.0
+        return
+
     if chave_anterior in dados:
         info_ant = dados[chave_anterior]
 
@@ -653,10 +663,37 @@ def recalcular_saldo_inicial(chave):
         total_credito_ant = sum(c["valor"] for c in info_ant["cartao_credito"])
         total_despesas_todas_ant = sum(d["valor"] for d in info_ant["despesas_fixas"])
 
-        saldo_final_mes_anterior = info_ant["conta"] + total_receitas_ant - total_gastos_ant - total_credito_ant - total_despesas_todas_ant
+        saldo_final_mes_anterior = (
+            info_ant["conta"]
+            + total_receitas_ant
+            - total_gastos_ant
+            - total_credito_ant
+            - total_despesas_todas_ant
+        )
 
-        # Atualiza saldo inicial do mês atual
         dados[chave]["conta"] = saldo_final_mes_anterior
+
+def recalcular_saldos_em_cadeia():
+    if not inicio_uso:
+        return
+
+    mes_inicio, ano_inicio = inicio_uso
+    mes_atual = combo_mes.current() + 1
+    ano_atual = int(combo_ano.get())
+
+    ano, mes = ano_inicio, mes_inicio
+
+    while (ano < ano_atual) or (ano == ano_atual and mes <= mes_atual):
+        chave = (mes, ano)
+        inicializar_mes(mes, ano)
+        recalcular_saldo_inicial(chave)
+
+        # Avança para o próximo mês
+        if mes == 12:
+            mes = 1
+            ano += 1
+        else:
+            mes += 1
 
 def atualizar_resumo(*args):
     mes = combo_mes.current() + 1
@@ -837,9 +874,10 @@ def atualizar_resumo(*args):
     total_gastos = sum(g["valor"] for g in info["gastos"])
     total_pagas = sum(d["valor"] for d in info["despesas_fixas"] if d["status"] == "Pago")
     total_todas = sum(d["valor"] for d in info["despesas_fixas"])
+    saldo_inicial = info["conta"]
 
-    saldo_atual = total_receitas - total_gastos - total_cartao_pago - total_pagas
-    saldo_final = total_receitas - total_gastos - total_cartao_todos - total_todas
+    saldo_atual = saldo_inicial + total_receitas - total_gastos - total_cartao_pago - total_pagas
+    saldo_final = saldo_inicial + total_receitas - total_gastos - total_cartao_todos - total_todas
 
     cor_saldo_atual = "#004085" if saldo_atual >= 0 else "#dc3545"  # azul se positivo, vermelho se negativo
     cor_saldo_final = "#004085" if saldo_final >= 0 else "#dc3545"
