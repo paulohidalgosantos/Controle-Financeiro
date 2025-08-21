@@ -26,7 +26,7 @@ def buscar_atualizacao():
             versao_remota = response.read().decode().strip()
 
         if versao_remota > VERSAO_ATUAL:
-            # Janela de confirmação
+            # Janela de confirmação para atualizar
             confirm_janela = tk.Toplevel(app)
             confirm_janela.title("Atualização disponível")
             confirm_janela.resizable(False, False)
@@ -48,14 +48,30 @@ def buscar_atualizacao():
             botoes = tk.Frame(frame, bg="#f8f9fa")
             botoes.pack()
 
-            ttk.Button(botoes, text="✓ Sim", command=lambda: [baixar_e_instalar_atualizacao(), confirm_janela.destroy()], bootstyle="success").pack(side="left", padx=10)
-            ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
+            ttk.Button(
+                botoes,
+                text="✓ Sim",
+                command=lambda: [baixar_e_instalar_atualizacao(), confirm_janela.destroy()],
+                bootstyle="success"
+            ).pack(side="left", padx=10)
+
+            ttk.Button(
+                botoes,
+                text="✗ Não",
+                command=confirm_janela.destroy,
+                bootstyle="secondary"
+            ).pack(side="right", padx=10)
 
         else:
-            tk.messagebox.showinfo("Atualização", "Você já está usando a versão mais recente.", parent=app)
+            tk.messagebox.showinfo(
+                "Atualização",
+                "Você já está usando a versão mais recente.",
+                parent=app
+            )
 
     except Exception as e:
-        tk.messagebox.showerror("Erro", f"Erro ao verificar atualização:\n{e}", parent=app)
+        # Apenas loga o erro, sem mostrar janela
+        print(f"[ERRO] Falha ao verificar atualização: {e}")
 
 def baixar_e_instalar_atualizacao():
     try:
@@ -63,19 +79,22 @@ def baixar_e_instalar_atualizacao():
         with urllib.request.urlopen(url_api, timeout=10) as response:
             release = json.loads(response.read().decode())
 
-        exe_url = next((asset["browser_download_url"] for asset in release["assets"] if asset["name"].endswith(".exe")), None)
+        exe_url = next(
+            (asset["browser_download_url"] for asset in release["assets"] if asset["name"].endswith(".exe")),
+            None
+        )
         if not exe_url:
             raise Exception("Nenhum executável .exe encontrado na última release.")
 
         caminho_atual = os.path.abspath(sys.argv[0])
         pasta = os.path.dirname(caminho_atual)
-        
+
         temp_dir = os.path.join(pasta, "_temp_update")
         os.makedirs(temp_dir, exist_ok=True)
-        
+
         novo_exe = os.path.join(temp_dir, "novo_controle_financeiro.exe")
 
-        # Baixa o arquivo
+        # Baixa o executável
         with urllib.request.urlopen(exe_url, timeout=30) as response:
             conteudo = response.read()
             if len(conteudo) < 5_000_000:
@@ -83,27 +102,20 @@ def baixar_e_instalar_atualizacao():
             with open(novo_exe, 'wb') as f:
                 f.write(conteudo)
 
-        # Chama updater externo
+        # Chama updater externo (não abre o app atualizado automaticamente)
         updater_path = os.path.join(pasta, "updater.pyw")
-        subprocess.Popen(["pythonw", updater_path, caminho_atual, novo_exe], creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.Popen(
+            ["pythonw", updater_path, caminho_atual, novo_exe],
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
 
-        app.destroy()  # fecha app principal para permitir atualização
-
-    except Exception as e:
-        tk.messagebox.showerror("Erro", f"Falha ao atualizar:\n{e}", parent=app)
-
-
-        # Salvar dados antes de fechar
-        salvar_dados()
-        
-        # Executar script de atualização
-        subprocess.Popen([bat_path], shell=True, cwd=temp_dir)
-        
-        # Fechar aplicativo atual
-        app.quit()
+        # Fecha o app principal para permitir a atualização
+        salvar_dados()  # salva dados antes de fechar
+        app.destroy()
 
     except Exception as e:
-        show_error("Erro na Atualização", f"Erro ao atualizar:\n{e}\n\nTente baixar manualmente do GitHub.")
+        # Apenas log no console, sem janela de erro
+        print(f"[ERRO] Falha ao atualizar: {e}")
 
 def verificar_dependencias():
     """Verifica se todas as dependências estão disponíveis - útil para debug"""
