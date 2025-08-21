@@ -217,7 +217,7 @@ endlocal
         app.quit()
 
     except Exception as e:
-        messagebox.showerror("Erro na Atualização", f"Erro ao atualizar:\n{e}\n\nTente baixar manualmente do GitHub.")
+        show_error("Erro na Atualização", f"Erro ao atualizar:\n{e}\n\nTente baixar manualmente do GitHub.")
 
 def verificar_dependencias():
     """Verifica se todas as dependências estão disponíveis - útil para debug"""
@@ -291,23 +291,32 @@ def carregar_dados():
         try:
             with open(CAMINHO_ARQUIVO, "r", encoding="utf-8") as f:
                 conteudo = json.load(f)
+
+                # Sempre força cada mês a ser dict
                 dados_carregados = conteudo.get("dados", {})
                 dados = {
-                    tuple(map(int, chave.split("-"))): valor
+                    tuple(map(int, chave.split("-"))): (valor if isinstance(valor, dict) else {})
                     for chave, valor in dados_carregados.items()
                 }
-                cartoes = conteudo.get("cartoes", [])
-                contas_fixas_modelo = conteudo.get("contas_fixas_modelo", [])
-                tipos_gasto = conteudo.get("tipos_gasto") or TIPOS_GASTO_PADRAO.copy()
-                inicio_uso = tuple(conteudo.get("inicio_uso", [])) or None
 
-                ultima_selecao = conteudo.get("ultima_selecao", {})
+                cartoes = conteudo.get("cartoes", []) or []
+                contas_fixas_modelo = conteudo.get("contas_fixas_modelo", []) or []
+                tipos_gasto = conteudo.get("tipos_gasto") or TIPOS_GASTO_PADRAO.copy()
+
+                # Corrige inicio_uso evitando erro se for None
+                inicio_uso_raw = conteudo.get("inicio_uso")
+                if inicio_uso_raw and isinstance(inicio_uso_raw, (list, tuple)) and len(inicio_uso_raw) == 2:
+                    inicio_uso = tuple(inicio_uso_raw)
+                else:
+                    inicio_uso = None
+
+                ultima_selecao = conteudo.get("ultima_selecao", {}) or {}
                 ultima_selecao_cartao = ultima_selecao.get("cartao", None)
                 ultima_selecao_tipo = ultima_selecao.get("tipo_gasto", None)
                 ultima_selecao_mes = ultima_selecao.get("mes", None)
                 ultima_selecao_ano = ultima_selecao.get("ano", None)
 
-                usuarios = conteudo.get("usuarios", [])  # <-- novo
+                usuarios = conteudo.get("usuarios", []) or []
 
         except Exception as e:
             print(f"Erro ao carregar dados: {e}")
@@ -316,17 +325,23 @@ def carregar_dados():
             inicio_uso = None
             ultima_selecao_cartao = ultima_selecao_tipo = None
             ultima_selecao_mes = ultima_selecao_ano = None
-            usuarios = []  # <-- novo
-            messagebox.showwarning("Aviso", f"Erro ao carregar dados salvos. Iniciando com dados limpos.\nErro: {e}")
+            usuarios = []
+            show_warning(
+                "Aviso",
+                f"Erro ao carregar dados salvos. Iniciando com dados limpos.\nErro: {e}"
+            )
     else:
         dados, cartoes, contas_fixas_modelo = {}, [], []
         tipos_gasto = TIPOS_GASTO_PADRAO.copy()
         inicio_uso = None
         ultima_selecao_cartao = ultima_selecao_tipo = None
         ultima_selecao_mes = ultima_selecao_ano = None
-        usuarios = []  # <-- novo
+        usuarios = []
 
-    for key in dados:
+    # Garante que sempre exista lista de cartao_credito
+    for key, valor in list(dados.items()):
+        if not isinstance(valor, dict):
+            dados[key] = {}
         for g in dados[key].get("cartao_credito", []):
             if "status" not in g:
                 g["status"] = "Aberto"
@@ -430,7 +445,7 @@ def tela_login(root, icone=None):
     def entrar():
         usuario = combo_usuarios.get()
         if not usuario:
-            messagebox.showwarning("Atenção", "Nenhum usuário selecionado. Cadastre um novo usuário.")
+            show_warning("Atenção", "Nenhum usuário selecionado. Cadastre um novo usuário.")
             return
         global usuario_atual
         usuario_atual = usuario
@@ -440,10 +455,10 @@ def tela_login(root, icone=None):
         def salvar_usuario():
             novo = entry_nome.get().strip()
             if not novo:
-                messagebox.showwarning("Atenção", "Digite um nome.")
+                show_warning("Atenção", "Digite um nome.")
                 return
             if novo in usuarios:
-                messagebox.showwarning("Atenção", "Usuário já existe.")
+                show_warning("Atenção", "Usuário já existe.")
                 return
 
             usuarios.append(novo)
@@ -506,7 +521,6 @@ def tela_login(root, icone=None):
     # Espera o login ser concluído antes de continuar
     root.wait_window(login)
 
-
 # -----------------------------
 # Inicialização da aplicação
 # -----------------------------
@@ -534,6 +548,44 @@ if __name__ == "__main__":
         app.iconphoto(False, icone)
     except Exception:
         print("⚠️ Ícone icone.png não encontrado.")
+
+    # -------------------------
+    # ESCONDER janela principal antes do login
+    # -------------------------
+    app.update()
+    app.withdraw()
+
+    # -------------------------
+    # Chamar tela de login
+    # -------------------------
+    tela_login(app, icone)
+
+    # -------------------------
+    # MOSTRAR janela principal apenas se houver usuário logado
+    # -------------------------
+    if not usuario_atual:
+        sys.exit()
+
+    app.deiconify()
+    app.state('zoomed')
+
+# -----------------------------
+# Funções de mensagem com parent app
+# -----------------------------
+def show_info(msg, title="Informação"):
+    """Exibe uma mensagem de informação usando a janela principal como parent."""
+    messagebox.showinfo(title, msg, parent=app)
+
+def show_warning(msg, title="Aviso"):
+    """Exibe uma mensagem de aviso usando a janela principal como parent."""
+    messagebox.showwarning(title, msg, parent=app)
+
+def show_error(msg, title="Erro"):
+    """Exibe uma mensagem de erro usando a janela principal como parent."""
+    messagebox.showerror(title, msg, parent=app)
+
+
+
 
     # -------------------------
     # ESCONDER janela principal antes do login
@@ -703,7 +755,7 @@ def gerenciar_cartoes():
     janela.grab_set()
     janela.configure(bg="#f8f9fa")
 
-    centralizar_janela(janela, 350, 280)
+    centralizar_janela(janela, 350, 250)
 
     main_frame = tk.Frame(janela, bg="#f8f9fa", padx=25, pady=25)
     main_frame.pack(fill="both", expand=True)
@@ -1074,7 +1126,7 @@ def zerar_tudo():
     senha_janela = tk.Toplevel(app)
     senha_janela.title("Senha necessária")
     senha_janela.resizable(False, False)
-    largura, altura = 360, 200
+    largura, altura = 360, 170
     x = (app.winfo_screenwidth() // 2) - (largura // 2)
     y = (app.winfo_screenheight() // 2) - (altura // 2)
     senha_janela.geometry(f"{largura}x{altura}+{x}+{y}")
@@ -1098,7 +1150,7 @@ def zerar_tudo():
             confirm_janela = tk.Toplevel(app)
             confirm_janela.title("Confirmar")
             confirm_janela.resizable(False, False)
-            largura, altura = 360, 200
+            largura, altura = 360, 160
             x = (app.winfo_screenwidth() // 2) - (largura // 2)
             y = (app.winfo_screenheight() // 2) - (altura // 2)
             confirm_janela.geometry(f"{largura}x{altura}+{x}+{y}")
@@ -1153,7 +1205,7 @@ def zerar_tudo():
             erro_janela = tk.Toplevel(app)
             erro_janela.title("Senha incorreta")
             erro_janela.resizable(False, False)
-            largura, altura = 360, 180
+            largura, altura = 360, 140
             x = (app.winfo_screenwidth() // 2) - (largura // 2)
             y = (app.winfo_screenheight() // 2) - (altura // 2)
             erro_janela.geometry(f"{largura}x{altura}+{x}+{y}")
@@ -1182,6 +1234,7 @@ def exportar_dados():
         return
 
     try:
+        # Preparar dados para exportação
         dados_salvos = {
             f"{mes:02d}-{ano}": valor
             for (mes, ano), valor in dados.items()
@@ -1194,9 +1247,29 @@ def exportar_dados():
                 "tipos_gasto": tipos_gasto,
                 "usuarios": usuarios
             }, f, ensure_ascii=False, indent=4)
-        messagebox.showinfo("Exportação", "Dados exportados com sucesso!")
+
+        # Janela de sucesso customizada
+        sucesso_janela = tk.Toplevel(app)
+        sucesso_janela.title("Sucesso")
+        sucesso_janela.resizable(False, False)
+        largura, altura = 300, 120
+        x = (app.winfo_screenwidth() // 2) - (largura // 2)
+        y = (app.winfo_screenheight() // 2) - (altura // 2)
+        sucesso_janela.geometry(f"{largura}x{altura}+{x}+{y}")
+        sucesso_janela.grab_set()
+        sucesso_janela.attributes("-topmost", True)
+        sucesso_janela.configure(bg="#f8f9fa")
+        aplicar_icone(sucesso_janela)
+
+        frame = tk.Frame(sucesso_janela, bg="#f8f9fa", padx=20, pady=20)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text="Dados exportados com sucesso!", font=("Inter", 11), justify="center").pack(pady=10)
+        ttk.Button(frame, text="OK", command=sucesso_janela.destroy, bootstyle="success").pack()
+
     except Exception as e:
-        messagebox.showerror("Erro", f"Falha ao exportar dados:\n{e}")
+        # Janela de erro customizada
+        mostrar_erro_toplevel(f"Falha ao exportar dados:\n{e}", app)
 
 def importar_dados():
     caminho = filedialog.askopenfilename(
@@ -1223,19 +1296,35 @@ def importar_dados():
 
         salvar_dados()
         atualizar_resumo()
-        messagebox.showinfo("Importação", "Dados importados com sucesso!")
 
-        # Fecha completamente o app
-        app.destroy()
+        # Janela de sucesso customizada
+        sucesso_janela = tk.Toplevel(app)
+        sucesso_janela.title("Sucesso")
+        sucesso_janela.resizable(False, False)
+        largura, altura = 300, 120
+        x = (app.winfo_screenwidth() // 2) - (largura // 2)
+        y = (app.winfo_screenheight() // 2) - (altura // 2)
+        sucesso_janela.geometry(f"{largura}x{altura}+{x}+{y}")
+        sucesso_janela.grab_set()
+        sucesso_janela.attributes("-topmost", True)
+        sucesso_janela.configure(bg="#f8f9fa")
+        aplicar_icone(sucesso_janela)
+
+        frame = tk.Frame(sucesso_janela, bg="#f8f9fa", padx=20, pady=20)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text="Dados importados com sucesso!", font=("Inter", 11), justify="center").pack(pady=10)
+        ttk.Button(frame, text="OK", command=sucesso_janela.destroy, bootstyle="success").pack()
 
     except Exception as e:
-        messagebox.showerror("Erro", f"Falha ao importar dados:\n{e}")
+        # Janela de erro customizada
+        mostrar_erro_toplevel(f"Falha ao importar dados:\n{e}", app)
 
 def trocar_usuario():
     global usuario_atual
 
     if not usuarios:
-        messagebox.showinfo("Aviso", "Nenhum usuário cadastrado.", parent=app)
+        show_info("Aviso", "Nenhum usuário cadastrado.", parent=app)
         return
 
     janela = tk.Toplevel(app)
@@ -1331,10 +1420,10 @@ def gerenciar_usuarios():
         def salvar_novo_usuario():
             nome = entry_nome.get().strip()
             if not nome:
-                messagebox.showwarning("Atenção", "Digite um nome.", parent=janela_adicionar)
+                show_warning("Atenção", "Digite um nome.", parent=janela_adicionar)
                 return
             if nome in usuarios:
-                messagebox.showwarning("Atenção", "Usuário já existe.", parent=janela_adicionar)
+                show_warning("Atenção", "Usuário já existe.", parent=janela_adicionar)
                 return
 
             usuarios.append(nome)
@@ -1367,7 +1456,7 @@ def gerenciar_usuarios():
     def excluir():
         idx = lista_usuarios.curselection()
         if not idx:
-            messagebox.showwarning("Atenção", "Selecione um usuário para excluir.", parent=janela)
+            show_warning("Atenção", "Selecione um usuário para excluir.", parent=janela)
             return
         usuario = lista_usuarios.get(idx)
 
@@ -1434,61 +1523,76 @@ def inicializar_mes(mes, ano):
     global inicio_uso
     chave = get_chave(mes, ano)
 
+    # Define mes_inicio e ano_inicio
     if inicio_uso:
         mes_inicio, ano_inicio = inicio_uso
+    else:
+        agora = datetime.now()
+        mes_inicio = agora.month
+        ano_inicio = agora.year
 
-        if (ano < ano_inicio) or (ano == ano_inicio and mes < mes_inicio):
-            if chave not in dados:
-                dados[chave] = {
-                    "receitas": {},
-                    "conta": 0.0,
-                    "despesas_fixas": [],
-                    "gastos": [],
-                    "cartao_credito": carregar_parcelas_cartao_para_mes(mes, ano),
-                    "tipos": []
-                }
-            return dados[chave]
+    # Se o mês já existe, apenas garante campos obrigatórios
+    if chave in dados:
+        info = dados[chave]
+        info["receitas"] = info.get("receitas", {})
+        info["conta"] = info.get("conta", 0.0)
+        info["despesas_fixas"] = info.get("despesas_fixas", [])
+        info["gastos"] = info.get("gastos", [])
+        info["cartao_credito"] = info.get("cartao_credito", carregar_parcelas_cartao_para_mes(mes, ano))
+        info["tipos"] = info.get("tipos", [])
+        return info
 
-    if chave not in dados:
-        despesas_validas = []
-        for d in contas_fixas_modelo:
-            mes_inicio_d, ano_inicio_d = d.get("inicio", (1, 1900))
-            if (ano_inicio_d, mes_inicio_d) <= (ano, mes):
-                despesas_validas.append(d)
-
+    # --- Meses anteriores ao início de uso ---
+    if (ano < ano_inicio) or (ano == ano_inicio and mes < mes_inicio):
         dados[chave] = {
             "receitas": {},
             "conta": 0.0,
-            "despesas_fixas": copy.deepcopy(despesas_validas),
+            "despesas_fixas": [],
             "gastos": [],
             "cartao_credito": carregar_parcelas_cartao_para_mes(mes, ano),
             "tipos": []
         }
+        return dados[chave]
 
-        mes_ant = mes - 1 if mes > 1 else 12
-        ano_ant = ano if mes > 1 else ano - 1
+    # --- Inicializa mês normalmente ---
+    despesas_validas = []
+    for d in contas_fixas_modelo:
+        mes_inicio_d, ano_inicio_d = d.get("inicio", (1, 1900))
+        if (ano_inicio_d, mes_inicio_d) <= (ano, mes):
+            despesas_validas.append(d)
 
-        if (ano_ant > ano_inicio) or (ano_ant == ano_inicio and mes_ant >= mes_inicio):
-            chave_anterior = get_chave(mes_ant, ano_ant)
-            if chave_anterior in dados:
-                info_ant = dados[chave_anterior]
+    dados[chave] = {
+        "receitas": {},
+        "conta": 0.0,
+        "despesas_fixas": copy.deepcopy(despesas_validas),
+        "gastos": [],
+        "cartao_credito": carregar_parcelas_cartao_para_mes(mes, ano),
+        "tipos": []
+    }
 
-                total_receitas_ant = sum(info_ant["receitas"].values())
-                total_gastos_ant = sum(g["valor"] for g in info_ant["gastos"])
-                total_credito_ant = sum(c["valor"] for c in info_ant["cartao_credito"])
-                total_despesas_todas_ant = sum(d["valor"] for d in info_ant["despesas_fixas"])
+    # Calcular saldo do mês anterior
+    mes_ant = mes - 1 if mes > 1 else 12
+    ano_ant = ano if mes > 1 else ano - 1
+    if (ano_ant > ano_inicio) or (ano_ant == ano_inicio and mes_ant >= mes_inicio):
+        chave_anterior = get_chave(mes_ant, ano_ant)
+        if chave_anterior in dados:
+            info_ant = dados[chave_anterior]
 
-                saldo_final_mes_anterior = (
-                    info_ant["conta"]
-                    + total_receitas_ant
-                    - total_gastos_ant
-                    - total_credito_ant
-                    - total_despesas_todas_ant
-                )
+            total_receitas_ant = sum(info_ant.get("receitas", {}).values())
+            total_gastos_ant = sum(g.get("valor", 0) for g in info_ant.get("gastos", []))
+            total_credito_ant = sum(c.get("valor", 0) for c in info_ant.get("cartao_credito", []))
+            total_despesas_todas_ant = sum(d.get("valor", 0) for d in info_ant.get("despesas_fixas", []))
 
-                dados[chave]["conta"] = saldo_final_mes_anterior
-        else:
-            dados[chave]["conta"] = 0.0
+            saldo_final_mes_anterior = (
+                info_ant.get("conta", 0.0)
+                + total_receitas_ant
+                - total_gastos_ant
+                - total_credito_ant
+                - total_despesas_todas_ant
+            )
+            dados[chave]["conta"] = saldo_final_mes_anterior
+    else:
+        dados[chave]["conta"] = 0.0
 
     return dados[chave]
 
@@ -1512,21 +1616,23 @@ def recalcular_saldo_inicial(chave):
 
     mes_inicio, ano_inicio = inicio_uso
 
-    # Se o mês anterior for anterior ao início de uso, saldo inicial será 0
+    # Meses anteriores ao início não devem ter saldo nem despesas fixas
     if (ano_ant < ano_inicio) or (ano_ant == ano_inicio and mes_ant < mes_inicio):
-        dados[chave]["conta"] = 0.0
+        if chave in dados:
+            dados[chave]["conta"] = 0.0
+            dados[chave]["despesas_fixas"] = []
         return
 
     if chave_anterior in dados:
         info_ant = dados[chave_anterior]
 
-        total_receitas_ant = sum(info_ant["receitas"].values())
-        total_gastos_ant = sum(g["valor"] for g in info_ant["gastos"])
-        total_credito_ant = sum(c["valor"] for c in info_ant["cartao_credito"])
-        total_despesas_todas_ant = sum(d["valor"] for d in info_ant["despesas_fixas"])
+        total_receitas_ant = sum(info_ant.get("receitas", {}).values())
+        total_gastos_ant = sum(g.get("valor", 0) for g in info_ant.get("gastos", []))
+        total_credito_ant = sum(c.get("valor", 0) for c in info_ant.get("cartao_credito", []))
+        total_despesas_todas_ant = sum(d.get("valor", 0) for d in info_ant.get("despesas_fixas", []))
 
         saldo_final_mes_anterior = (
-            info_ant["conta"]
+            info_ant.get("conta", 0.0)
             + total_receitas_ant
             - total_gastos_ant
             - total_credito_ant
@@ -1568,6 +1674,20 @@ def atualizar_resumo(*args):
         recalcular_saldo_inicial(chave)
 
     info = dados[chave]
+
+    # Usa .get() com valor padrão para evitar NoneType
+    receitas_dict = info.get("receitas", {})
+    despesas_fixas = info.get("despesas_fixas", [])
+    gastos_diarios = info.get("gastos", [])
+    cartoes = info.get("cartao_credito", [])
+
+    total_receitas = sum(receitas_dict.values())
+    total_despesas_fixas = sum(d["valor"] for d in despesas_fixas)
+    total_gastos_diarios = sum(g["valor"] for g in gastos_diarios)
+    total_cartao = sum(c["valor"] for c in cartoes)
+
+    saldo_inicial = info.get("saldo_inicial", 0)
+    saldo_final = saldo_inicial + total_receitas - total_despesas_fixas - total_gastos_diarios - total_cartao
 
     # Limpar frames antes de atualizar
     for frame in [scroll_frame_receitas, scroll_frame_despesas, scroll_frame_gastos, scroll_frame_credito, frame_resumo]:
@@ -1619,7 +1739,7 @@ def atualizar_resumo(*args):
         return frame_topo
 
     # --- RECEITAS ---
-    total_receitas = sum(info["receitas"].values())
+    total_receitas = sum(receitas_dict.values())
     frame_receitas_topo = criar_cabecalho_com_detalhes(
         scroll_frame_receitas,
         "Receitas",
@@ -1631,7 +1751,7 @@ def atualizar_resumo(*args):
     frame_receitas_conteudo = tk.Frame(frame_receitas_topo, bg="#d9e3f1", padx=18, pady=15)
     frame_receitas_conteudo.pack(fill="x")
 
-    for nome, valor in list(info["receitas"].items()):
+    for nome, valor in list(receitas_dict.items()):
         frame_linha = tk.Frame(frame_receitas_conteudo, bg="#d9e3f1")
         frame_linha.pack(anchor="w", fill="x", pady=5)
 
@@ -1641,7 +1761,7 @@ def atualizar_resumo(*args):
             font=("Inter", 12, "bold"),
             bg="#d9e3f1"
         )
-        label_receita.configure(fg="#28a745")  # verde
+        label_receita.configure(fg="#28a745")
         label_receita.pack(side="left", anchor="w")
 
         btn_editar = tk.Label(
@@ -1667,7 +1787,7 @@ def atualizar_resumo(*args):
         btn_excluir.bind("<Button-1>", lambda e, n=nome: excluir_receita(n))
 
     # --- DESPESAS FIXAS ---
-    total_despesas_fixas = sum(d["valor"] for d in info["despesas_fixas"])
+    total_despesas_fixas = sum(d["valor"] for d in despesas_fixas)
     frame_despesas_topo = criar_cabecalho_com_detalhes(
         scroll_frame_despesas,
         "Despesas Fixas",
@@ -1679,7 +1799,7 @@ def atualizar_resumo(*args):
     frame_despesa_conteudo = tk.Frame(frame_despesas_topo, bg="#d9e3f1", padx=18, pady=15)
     frame_despesa_conteudo.pack(fill="x")
 
-    despesas_ordenadas = sorted(info["despesas_fixas"], key=lambda d: d.get("vencimento", 99))
+    despesas_ordenadas = sorted(despesas_fixas, key=lambda d: d.get("vencimento", 99))
 
     from calendar import monthrange
     hoje = datetime.today()
@@ -1687,42 +1807,38 @@ def atualizar_resumo(*args):
 
     for idx, d in enumerate(despesas_ordenadas):
         vencimento = d.get("vencimento", "??")
-        status = d["status"]
+        status = d.get("status", "Aberto")
 
-        # Define a cor baseada no status e vencimento
         if status == "Pago":
-            cor = "#28a745"  # verde
+            cor = "#28a745"
         elif status == "Aberto":
             if isinstance(vencimento, int):
                 venc_data = datetime(ano, mes, min(vencimento, ultimo_dia_mes))
-                cor = "#dc3545" if venc_data < hoje else "#0d6efd"  # vermelho ou azul
+                cor = "#dc3545" if venc_data < hoje else "#0d6efd"
             else:
                 cor = "#0d6efd"
         else:
             cor = "#212529"
 
-        texto = f"{d['descricao']} - {locale.currency(d['valor'], grouping=True)} - Venc: {vencimento} ({status})"
+        texto = f"{d.get('descricao', '')} - {locale.currency(d['valor'], grouping=True)} - Venc: {vencimento} ({status})"
 
         container = tk.Frame(frame_despesa_conteudo, bg="#d9e3f1")
         container.pack(fill="x", pady=3)
 
-        # Botão editar
         btn_editar = tk.Label(container, text="✏️", font=("Inter", 14, "bold"), fg="white", bg="#d9e3f1", cursor="hand2")
         btn_editar.pack(side="left", padx=(0, 10))
         btn_editar.bind("<Button-1>", lambda e, i=idx: editar_despesa_fixa(i))
 
-        # Botão excluir
         btn_excluir = tk.Label(container, text="🗑️", font=("Inter", 14, "bold"), fg="#dc3545", bg="#d9e3f1", cursor="hand2")
         btn_excluir.pack(side="left", padx=(0, 10))
         btn_excluir.bind("<Button-1>", lambda e, i=idx: excluir_despesa_fixa(i))
 
-        # Label da despesa com cor condicional
         label_despesa = tk.Label(container, text=texto, font=("Inter", 12, "bold"), bg="#d9e3f1")
         label_despesa.configure(fg=cor)
         label_despesa.pack(side="left", anchor="w")
 
     # --- GASTOS DIÁRIOS ---
-    total_gastos = sum(g["valor"] for g in info["gastos"])
+    total_gastos = sum(g["valor"] for g in gastos_diarios)
     criar_cabecalho_com_detalhes(
         scroll_frame_gastos,
         "Gastos Diários",
@@ -1733,8 +1849,8 @@ def atualizar_resumo(*args):
 
     # --- CARTÃO DE CRÉDITO ---
     gastos_por_cartao = {}
-    for c in info["cartao_credito"]:
-        nome = c["cartao"]
+    for c in cartoes:
+        nome = c.get("cartao", "Cartão")
         gastos_por_cartao.setdefault(nome, []).append(c)
 
     def cartao_pago(lista_gastos_cartao):
@@ -1757,9 +1873,9 @@ def atualizar_resumo(*args):
     )
 
     # --- RESUMO ---
-    saldo_inicial = info["conta"]
-    total_pagas = sum(d["valor"] for d in info["despesas_fixas"] if d["status"] == "Pago")
-    total_todas = sum(d["valor"] for d in info["despesas_fixas"])
+    saldo_inicial = info.get("conta", 0)
+    total_pagas = sum(d["valor"] for d in despesas_fixas if d.get("status") == "Pago")
+    total_todas = sum(d["valor"] for d in despesas_fixas)
 
     saldo_atual = saldo_inicial + total_receitas - total_gastos - total_cartao_pago - total_pagas
     saldo_final = saldo_inicial + total_receitas - total_gastos - total_cartao_todos - total_todas
@@ -1783,13 +1899,13 @@ def atualizar_resumo(*args):
                                  bg="#d9e3f1")
     label_saldo_final.configure(fg=cor_saldo_final)
     label_saldo_final.pack(anchor="w", pady=(5, 0))
-    
+
     label_gastos_tipo = tk.Label(
         resumo_container,
         text="📈 Gastos por Tipo:",
         font=("Inter", 12, "bold"),
         bg="#d9e3f1",
-        fg="#0d6efd"  # azul padrão do app
+        fg="#0d6efd"
     )
     label_gastos_tipo.configure(fg="#7B8ACB")
     label_gastos_tipo.pack(anchor="w", pady=(15, 5))
@@ -2229,12 +2345,12 @@ def adicionar_despesa_fixa():
     janela = tk.Toplevel(app)
     janela.title("Nova Despesa Fixa")
     largura, altura = 350, 350
-    janela.geometry(f"{largura}x{altura}")
     x = (janela.winfo_screenwidth() // 2) - (largura // 2)
     y = (janela.winfo_screenheight() // 2) - (altura // 2)
     janela.geometry(f"{largura}x{altura}+{x}+{y}")
     janela.attributes("-topmost", True)
     janela.grab_set()
+    aplicar_icone(janela)
 
     main_frame = tk.Frame(janela, padx=20, pady=20)
     main_frame.pack(fill="both", expand=True)
@@ -2251,49 +2367,62 @@ def adicionar_despesa_fixa():
     entrada_venc = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_venc.pack(pady=5)
 
+    def mostrar_erro(mensagem):
+        erro_janela = tk.Toplevel(janela)
+        erro_janela.title("Erro")
+        erro_janela.resizable(False, False)
+        erro_janela.geometry("350x120")
+        erro_janela.attributes("-topmost", True)
+        erro_janela.grab_set()
+        aplicar_icone(erro_janela)
+        frame = tk.Frame(erro_janela, padx=15, pady=15, bg="#f8f9fa")
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=mensagem, foreground="#dc3545", wraplength=320,
+                  font=("Inter", 10), justify="center", background="#f8f9fa").pack(pady=10)
+        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+        erro_janela.update_idletasks()
+        w = erro_janela.winfo_width()
+        h = erro_janela.winfo_height()
+        x = janela.winfo_rootx() + (janela.winfo_width() // 2) - (w // 2)
+        y = janela.winfo_rooty() + (janela.winfo_height() // 2) - (h // 2)
+        erro_janela.geometry(f"+{x}+{y}")
+
     def salvar():
         descricao = entrada_desc.get().strip()
-
         try:
             valor = float(entrada_valor.get().replace(",", "."))
-        except ValueError:
-            messagebox.showerror("Erro", "Valor inválido.", parent=janela)
+        except:
+            mostrar_erro("Valor inválido.")
             entrada_valor.focus_set()
             return
-
         try:
             vencimento = int(entrada_venc.get())
             if not (1 <= vencimento <= 31):
                 raise ValueError
-        except ValueError:
-            messagebox.showerror("Erro", "Dia de vencimento inválido (deve ser 1 a 31).", parent=janela)
+        except:
+            mostrar_erro("Dia de vencimento inválido (1 a 31).")
             entrada_venc.focus_set()
             return
-
         if not descricao:
-            messagebox.showerror("Erro", "Descrição não pode ser vazia.", parent=janela)
+            mostrar_erro("Descrição não pode ser vazia.")
             entrada_desc.focus_set()
             return
 
         mes_selecionado = combo_mes.current() + 1
         ano_selecionado = int(combo_ano.get())
-
         nova = {
             "descricao": descricao,
             "valor": valor,
             "vencimento": vencimento,
             "status": "Aberto",
-            "inicio": (ano_selecionado, mes_selecionado)  # <-- aqui ajustado para (ano, mes)
+            "inicio": (ano_selecionado, mes_selecionado)
         }
         contas_fixas_modelo.append(nova)
-
-        ano = ano_selecionado
-        mes = mes_selecionado
+        ano, mes = ano_selecionado, mes_selecionado
         while ano <= 2030:
             chave = get_chave(mes, ano)
             if chave in dados:
                 dados[chave]["despesas_fixas"].append(nova.copy())
-
             mes += 1
             if mes > 12:
                 mes = 1
@@ -2302,16 +2431,26 @@ def adicionar_despesa_fixa():
         atualizar_resumo()
         janela.destroy()
 
-    ttk.Button(main_frame, text="💾 Salvar", command=salvar, 
-               bootstyle="success").pack(pady=20)
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar, bootstyle="success").pack(pady=20)
     janela.bind("<Return>", lambda event: salvar())
-    aplicar_icone(janela)
 
 def adicionar_cartao_credito(callback_apos_salvar=None):
     global ultima_selecao_cartao, ultima_selecao_tipo
 
     if not cartoes:
-        mostrar_erro_toplevel("Nenhum cartão cadastrado. Cadastre um cartão primeiro.", app)
+        erro_janela = tk.Toplevel(app)
+        erro_janela.title("Erro")
+        erro_janela.resizable(False, False)
+        erro_janela.geometry("350x120")
+        erro_janela.attributes("-topmost", True)
+        erro_janela.grab_set()
+        aplicar_icone(erro_janela)
+        frame = tk.Frame(erro_janela, padx=15, pady=15, bg="#f8f9fa")
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Nenhum cartão cadastrado. Cadastre um cartão primeiro.",
+                  foreground="#dc3545", wraplength=320, font=("Inter", 10),
+                  justify="center", background="#f8f9fa").pack(pady=10)
+        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
         return
 
     mes = combo_mes.current() + 1
@@ -2321,14 +2460,13 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
 
     janela = tk.Toplevel(app)
     janela.title("Gasto no Cartão")
-
-    largura = 500
-    altura = 550
+    largura, altura = 500, 620
     x = (janela.winfo_screenwidth() // 2) - (largura // 2)
     y = (janela.winfo_screenheight() // 2) - (altura // 2)
     janela.geometry(f"{largura}x{altura}+{x}+{y}")
     janela.attributes("-topmost", True)
     janela.grab_set()
+    aplicar_icone(janela)
 
     main_frame = tk.Frame(janela, padx=25, pady=25)
     main_frame.pack(fill="both", expand=True)
@@ -2368,6 +2506,27 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
     check_fixo = ttk.Checkbutton(main_frame, text="Gasto Fixo (repetir todo mês)", variable=fixo_var)
     check_fixo.pack(pady=8)
 
+    # ---------------- Subfunção de erro com ícone ----------------
+    def mostrar_erro(mensagem):
+        erro_janela = tk.Toplevel(janela)
+        erro_janela.title("Erro")
+        erro_janela.resizable(False, False)
+        erro_janela.geometry("350x120")
+        erro_janela.attributes("-topmost", True)
+        erro_janela.grab_set()
+        aplicar_icone(erro_janela)
+        frame = tk.Frame(erro_janela, padx=15, pady=15, bg="#f8f9fa")
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=mensagem, foreground="#dc3545", wraplength=320,
+                  font=("Inter", 10), justify="center", background="#f8f9fa").pack(pady=10)
+        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+        erro_janela.update_idletasks()
+        w = erro_janela.winfo_width()
+        h = erro_janela.winfo_height()
+        x = janela.winfo_rootx() + (janela.winfo_width() // 2) - (w // 2)
+        y = janela.winfo_rooty() + (janela.winfo_height() // 2) - (h // 2)
+        erro_janela.geometry(f"+{x}+{y}")
+
     def formatar_data(data_str):
         if len(data_str) != 8 or not data_str.isdigit():
             raise ValueError("Data inválida. Deve ser no formato DDMMAAAA.")
@@ -2389,7 +2548,7 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
         fixo = fixo_var.get()
 
         if not all([desc, valor_raw, parcelas_raw, data_raw, tipo, cartao_nome]):
-            mostrar_erro_toplevel("Por favor, preencha todos os campos.", janela)
+            mostrar_erro("Por favor, preencha todos os campos.")
             return
 
         try:
@@ -2397,7 +2556,7 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
             parcelas = int(parcelas_raw)
             cartao_info = next((c for c in cartoes if c["nome"] == cartao_nome), None)
             if not cartao_info:
-                mostrar_erro_toplevel("Cartão selecionado não encontrado.", janela)
+                mostrar_erro("Cartão selecionado não encontrado.")
                 return
 
             cartao = cartao_info["nome"]
@@ -2410,7 +2569,7 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
                 raise ValueError(f"Cartão '{cartao}' não tem dia de fechamento cadastrado.")
 
         except Exception as e:
-            mostrar_erro_toplevel(f"Dados inválidos: {str(e)}", janela)
+            mostrar_erro(f"Dados inválidos: {str(e)}")
             return
 
         meses_repeticao = 24 if fixo else parcelas
@@ -2441,7 +2600,7 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
                 "total_parcelas": parcelas if not fixo else 0,
                 "tipo": tipo,
                 "fixo": fixo,
-                "status": "Aberto"  # Adicionado aqui ✅
+                "status": "Aberto"
             })
 
         ultima_selecao_cartao = cartao
@@ -2452,74 +2611,11 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
             callback_apos_salvar()
         janela.destroy()
 
-    botao_salvar = ttk.Button(main_frame, text="💾 Salvar", command=salvar, 
-                             bootstyle="success")
-    botao_salvar.pack(pady=20)
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar, bootstyle="success").pack(pady=20)
     janela.bind("<Return>", salvar)
-    aplicar_icone(janela)
-
-def editar_gasto_diario(idx, callback_apos_salvar=None):
-    mes = combo_mes.current() + 1
-    ano = int(combo_ano.get())
-    info = inicializar_mes(mes, ano)
-
-    if idx < 0 or idx >= len(info["gastos"]):
-        messagebox.showerror("Erro", "Índice de gasto inválido")
-        return
-
-    gasto = info["gastos"][idx]
-
-    janela = tk.Toplevel(app)
-    janela.title("Editar Gasto Diário")
-
-    largura, altura = 420, 280
-    x = (janela.winfo_screenwidth() // 2) - (largura // 2)
-    y = (janela.winfo_screenheight() // 2) - (altura // 2)
-    janela.geometry(f"{largura}x{altura}+{x}+{y}")
-    janela.resizable(False, False)
-
-    main_frame = tk.Frame(janela,padx=20, pady=20)
-    main_frame.pack(fill="both", expand=True)
-
-    ttk.Label(main_frame, text="Descrição:", font=("Inter", 11)).pack(padx=10, pady=(10, 0), anchor="w")
-    entry_descricao = ttk.Entry(main_frame, font=("Inter", 10))
-    entry_descricao.pack(padx=10, pady=8, fill="x")
-    entry_descricao.insert(0, gasto["descricao"])
-
-    ttk.Label(main_frame, text="Valor:", font=("Inter", 11)).pack(padx=10, pady=(10, 0), anchor="w")
-    entry_valor = ttk.Entry(main_frame, font=("Inter", 10))
-    entry_valor.pack(padx=10, pady=8, fill="x")
-    entry_valor.insert(0, str(gasto["valor"]))
-
-    def salvar(event=None):
-        nova_desc = entry_descricao.get().strip()
-        try:
-            novo_valor = float(entry_valor.get().replace(",", "."))
-        except:
-            messagebox.showerror("Erro", "Valor inválido")
-            return
-
-        if not nova_desc:
-            messagebox.showerror("Erro", "Descrição não pode estar vazia")
-            return
-
-        info["gastos"][idx]["descricao"] = nova_desc
-        info["gastos"][idx]["valor"] = novo_valor
-
-        salvar_dados()
-        janela.destroy()
-        atualizar_resumo()
-        if callback_apos_salvar:
-            callback_apos_salvar()
-
-    ttk.Button(main_frame, text="💾 Salvar", command=salvar, 
-               bootstyle="success").pack(pady=15)
-    janela.bind("<Return>", salvar)
-    entry_descricao.focus_set()
-    aplicar_icone(janela)
 
 def adicionar_valor(titulo, tipo, callback_apos_salvar=None):
-    global usuario_atual  # garante que usamos a variável global
+    global usuario_atual
     mes = combo_mes.current() + 1
     ano = int(combo_ano.get())
     chave = get_chave(mes, ano)
@@ -2527,14 +2623,14 @@ def adicionar_valor(titulo, tipo, callback_apos_salvar=None):
 
     janela = tk.Toplevel(app)
     janela.title(titulo)
-
     largura = 350
-    altura = 350 if tipo == "gasto" else 250
+    altura = 450 if tipo == "gasto" else 250
     x = (janela.winfo_screenwidth() // 2) - (largura // 2)
     y = (janela.winfo_screenheight() // 2) - (altura // 2)
     janela.geometry(f"{largura}x{altura}+{x}+{y}")
     janela.attributes("-topmost", True)
     janela.grab_set()
+    aplicar_icone(janela)
 
     main_frame = tk.Frame(janela, padx=20, pady=20)
     main_frame.pack(fill="both", expand=True)
@@ -2557,44 +2653,48 @@ def adicionar_valor(titulo, tipo, callback_apos_salvar=None):
         tipo_gasto_combo.pack(pady=5)
         atualizar_tipo_gasto_combo(tipo_gasto_combo)
 
-    def mostrar_erro_toplevel(mensagem, parent=janela):
-        erro_janela = tk.Toplevel(parent)
+    # ---------------- Subfunção de erro com ícone ----------------
+    def mostrar_erro_toplevel(mensagem):
+        erro_janela = tk.Toplevel(janela)
         erro_janela.title("Erro")
+        erro_janela.resizable(False, False)
         erro_janela.geometry("350x120")
         erro_janela.attributes("-topmost", True)
         erro_janela.grab_set()
+        aplicar_icone(erro_janela)
 
-        erro_frame = tk.Frame(erro_janela, padx=15, pady=15)
-        erro_frame.pack(fill="both", expand=True)
-
-        ttk.Label(erro_frame, text=mensagem, foreground="#dc3545", wraplength=320,
-                 font=("Inter", 10)).pack(pady=10)
-        ttk.Button(erro_frame, text="OK", command=erro_janela.destroy, 
-                  bootstyle="danger").pack()
-
+        frame = tk.Frame(erro_janela, padx=15, pady=15, bg="#f8f9fa")
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=mensagem, foreground="#dc3545", wraplength=320,
+                  font=("Inter", 10), justify="center", background="#f8f9fa").pack(pady=10)
+        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
         erro_janela.update_idletasks()
         w = erro_janela.winfo_width()
         h = erro_janela.winfo_height()
-        x = parent.winfo_rootx() + (parent.winfo_width() // 2) - (w // 2)
-        y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (h // 2)
+        x = janela.winfo_rootx() + (janela.winfo_width() // 2) - (w // 2)
+        y = janela.winfo_rooty() + (janela.winfo_height() // 2) - (h // 2)
         erro_janela.geometry(f"+{x}+{y}")
 
+    # ---------------- Salvar ----------------
     def salvar():
         desc = entrada_desc.get().strip()
-        try:
-            valor = float(entrada_valor.get().replace(",", "."))
-        except:
-            mostrar_erro_toplevel("Valor inválido.")
-            return
-
+        valor_texto = entrada_valor.get().strip()
         if not desc:
             mostrar_erro_toplevel("Descrição não pode ser vazia.")
+            return
+        if not valor_texto:
+            mostrar_erro_toplevel("Informe o valor.")
+            return
+
+        try:
+            valor = float(valor_texto.replace(",", "."))
+        except:
+            mostrar_erro_toplevel("Valor inválido. Use apenas números.")
             return
 
         if tipo == "receita":
             dados[chave]["receitas"][desc] = dados[chave]["receitas"].get(desc, 0.0) + valor
-
-        elif tipo == "gasto":
+        else:
             try:
                 dia = int(entrada_dia.get())
                 if dia < 1 or dia > 31:
@@ -2602,14 +2702,17 @@ def adicionar_valor(titulo, tipo, callback_apos_salvar=None):
             except:
                 mostrar_erro_toplevel("Dia inválido. Informe um número entre 1 e 31.")
                 return
+            tipo_gasto_val = tipo_gasto_combo.get()
+            if not tipo_gasto_val:
+                mostrar_erro_toplevel("Selecione um tipo de gasto.")
+                return
 
-            tipo_gasto = tipo_gasto_combo.get()
             dados[chave]["gastos"].append({
                 "descricao": desc,
                 "valor": valor,
-                "tipo": tipo_gasto,
+                "tipo": tipo_gasto_val,
                 "dia": dia,
-                "usuario": usuario_atual or "Desconhecido"  # salva o usuário logado
+                "usuario": usuario_atual or "Desconhecido"
             })
 
         atualizar_resumo()
@@ -2617,27 +2720,23 @@ def adicionar_valor(titulo, tipo, callback_apos_salvar=None):
             callback_apos_salvar()
         janela.destroy()
 
-    ttk.Button(main_frame, text="💾 Salvar", command=salvar, 
-               bootstyle="success").pack(pady=15)
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar, bootstyle="success").pack(pady=15)
     janela.bind("<Return>", lambda event: salvar())
-    aplicar_icone(janela)
 
 # ----------------------Funções editar----------------------------------
 def editar_tipos_gastos(janela_anterior):
     global tipos_gasto
     janela_anterior.destroy()
 
-    # Janela principal de edição
     janela = tk.Toplevel(app)
     janela.title("Editar Tipos de Gastos")
-    largura = 450
-    altura = 550
+    largura, altura = 450, 550
     x = (janela.winfo_screenwidth() // 2) - (largura // 2)
     y = (janela.winfo_screenheight() // 2) - (altura // 2)
     janela.geometry(f"{largura}x{altura}+{x}+{y}")
     janela.transient(app)
     janela.grab_set()
-    aplicar_icone(janela)  # Ícone do app
+    aplicar_icone(janela)
 
     main_frame = tk.Frame(janela, padx=25, pady=25)
     main_frame.pack(fill="both", expand=True)
@@ -2650,9 +2749,29 @@ def editar_tipos_gastos(janela_anterior):
         lista_tipos.insert(tk.END, tipo)
     lista_tipos.pack(pady=8, fill="both", expand=True)
 
-    entrada_novo_tipo = ttk.Entry(main_frame, font=("Inter", 10))
     ttk.Label(main_frame, text="Novo Tipo de Gasto ou Edição:", font=("Inter", 11)).pack(pady=(15, 5))
+    entrada_novo_tipo = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_novo_tipo.pack(pady=8, fill="x")
+
+    # ---------- Função auxiliar de aviso customizado ----------
+    def mostrar_erro_toplevel(mensagem, parent):
+        aviso_janela = tk.Toplevel(parent)
+        aviso_janela.title("Aviso")
+        aviso_janela.resizable(False, False)
+        largura, altura = 300, 120
+        x = (parent.winfo_screenwidth() // 2) - (largura // 2)
+        y = (parent.winfo_screenheight() // 2) - (altura // 2)
+        aviso_janela.geometry(f"{largura}x{altura}+{x}+{y}")
+        aviso_janela.grab_set()
+        aviso_janela.attributes("-topmost", True)
+        aviso_janela.configure(bg="#f8f9fa")
+        aplicar_icone(aviso_janela)
+
+        frame = tk.Frame(aviso_janela, bg="#f8f9fa", padx=20, pady=20)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text=mensagem, font=("Inter", 11), justify="center").pack(pady=10)
+        ttk.Button(frame, text="OK", command=aviso_janela.destroy, bootstyle="secondary").pack()
 
     # ---------------- Funções dos botões ----------------
     def adicionar_tipo():
@@ -2663,7 +2782,7 @@ def editar_tipos_gastos(janela_anterior):
             entrada_novo_tipo.delete(0, tk.END)
             salvar_dados()
         else:
-            messagebox.showwarning("Aviso", "Tipo já existe ou está vazio.")
+            mostrar_erro_toplevel("Tipo já existe ou está vazio.", janela)
 
     def excluir_tipo():
         selecionado = lista_tipos.curselection()
@@ -2673,7 +2792,7 @@ def editar_tipos_gastos(janela_anterior):
 
         tipo_selecionado = lista_tipos.get(selecionado)
 
-        # Janela de confirmação customizada
+        # Janela de confirmação
         confirm_janela = tk.Toplevel(janela)
         confirm_janela.title("Confirmar Exclusão")
         confirm_janela.resizable(False, False)
@@ -2706,48 +2825,29 @@ def editar_tipos_gastos(janela_anterior):
 
     def editar_tipo():
         selecionado = lista_tipos.curselection()
-        if selecionado:
-            indice = selecionado[0]
-            novo_nome = entrada_novo_tipo.get().strip()
-            antigo_nome = lista_tipos.get(indice)
+        if not selecionado:
+            mostrar_erro_toplevel("Selecione um tipo para editar.", janela)
+            return
 
-            if not novo_nome:
-                # Janela customizada com ícone
-                aviso_janela = tk.Toplevel(janela)
-                aviso_janela.title("Aviso")
-                aviso_janela.resizable(False, False)
-                largura_av, altura_av = 300, 120
-                x = (janela.winfo_screenwidth() // 2) - (largura_av // 2)
-                y = (janela.winfo_screenheight() // 2) - (altura_av // 2)
-                aviso_janela.geometry(f"{largura_av}x{altura_av}+{x}+{y}")
-                aviso_janela.grab_set()
-                aviso_janela.attributes("-topmost", True)
-                aviso_janela.configure(bg="#f8f9fa")
-                aplicar_icone(aviso_janela)
+        indice = selecionado[0]
+        novo_nome = entrada_novo_tipo.get().strip()
+        antigo_nome = lista_tipos.get(indice)
 
-                frame_aviso = tk.Frame(aviso_janela, bg="#f8f9fa", padx=20, pady=20)
-                frame_aviso.pack(fill="both", expand=True)
+        if not novo_nome:
+            mostrar_erro_toplevel("Digite um nome válido.", janela)
+            return
+        if novo_nome == antigo_nome:
+            mostrar_erro_toplevel("O nome não foi alterado.", janela)
+            return
+        if novo_nome in tipos_gasto:
+            mostrar_erro_toplevel("Este tipo já existe.", janela)
+            return
 
-                ttk.Label(frame_aviso, text="Digite um nome válido.", 
-                      font=("Inter", 11), justify="center").pack(pady=10)
-
-                ttk.Button(frame_aviso, text="OK", command=aviso_janela.destroy, bootstyle="secondary").pack()
-                return
-
-            if novo_nome == antigo_nome:
-                messagebox.showinfo("Aviso", "O nome não foi alterado.")
-                return
-            if novo_nome in tipos_gasto:
-                messagebox.showwarning("Aviso", "Este tipo já existe.")
-                return
-
-            tipos_gasto[indice] = novo_nome
-            lista_tipos.delete(indice)
-            lista_tipos.insert(indice, novo_nome)
-            entrada_novo_tipo.delete(0, tk.END)
-            salvar_dados()
-        else:
-            messagebox.showerror("Erro", "Selecione um tipo para editar.")
+        tipos_gasto[indice] = novo_nome
+        lista_tipos.delete(indice)
+        lista_tipos.insert(indice, novo_nome)
+        entrada_novo_tipo.delete(0, tk.END)
+        salvar_dados()
 
     # ---------------- Botões principais ----------------
     botoes_frame = tk.Frame(main_frame)
@@ -2756,8 +2856,6 @@ def editar_tipos_gastos(janela_anterior):
     ttk.Button(botoes_frame, text="➕ Adicionar Tipo", command=adicionar_tipo, bootstyle="success").pack(pady=5, fill="x")
     ttk.Button(botoes_frame, text="🗑️ Excluir Tipo Selecionado", command=excluir_tipo, bootstyle="danger").pack(pady=5, fill="x")
     ttk.Button(botoes_frame, text="✏️ Editar Tipo Selecionado", command=editar_tipo, bootstyle="primary").pack(pady=5, fill="x")
-
-    print(f"Tipos de gastos após carregamento: {tipos_gasto}")
 
 def editar_despesa_fixa(indice):
     mes = combo_mes.current() + 1
@@ -2775,6 +2873,7 @@ def editar_despesa_fixa(indice):
     janela.geometry(f"{largura}x{altura}+{x}+{y}")
     janela.attributes("-topmost", True)
     janela.grab_set()
+    aplicar_icone(janela)
 
     main_frame = tk.Frame(janela, padx=20, pady=20)
     main_frame.pack(fill="both", expand=True)
@@ -2794,46 +2893,39 @@ def editar_despesa_fixa(indice):
     venc_entry.insert(0, str(d.get("vencimento", "")))
     venc_entry.pack(pady=5)
 
-    status_btn = ttk.Button(main_frame, text=f"📋 Alternar Status (Atual: {d['status']})",
-                           bootstyle="info")
+    status_btn = ttk.Button(main_frame, text=f"📋 Alternar Status (Atual: {d['status']})", bootstyle="info")
+
+    def mostrar_erro(msg):
+        erro_janela = tk.Toplevel(janela)
+        erro_janela.title("Erro")
+        erro_janela.geometry("350x120")
+        erro_janela.attributes("-topmost", True)
+        erro_janela.grab_set()
+        aplicar_icone(erro_janela)
+        frame = tk.Frame(erro_janela, padx=15, pady=15)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=msg, foreground="#dc3545", wraplength=320, font=("Inter", 10)).pack(pady=10)
+        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+        erro_janela.update_idletasks()
+        w, h = erro_janela.winfo_width(), erro_janela.winfo_height()
+        x = janela.winfo_rootx() + (janela.winfo_width() // 2) - (w // 2)
+        y = janela.winfo_rooty() + (janela.winfo_height() // 2) - (h // 2)
+        erro_janela.geometry(f"+{x}+{y}")
 
     def salvar_alteracoes():
         try:
             valor_str = valor_entry.get().replace(",", ".")
             novo_valor = float(valor_str)
             novo_vencimento = int(venc_entry.get())
+        except:
+            mostrar_erro("Valor ou vencimento inválido.")
+            return
 
-            valor_antigo = d["valor"]
-            vencimento_antigo = d.get("vencimento", None)
-            descricao_alvo = d["descricao"]
-
-            # Atualiza o valor e vencimento no mês atual
-            d["valor"] = novo_valor
-            d["vencimento"] = novo_vencimento
-
-            # Replicar para próximos 11 meses caso valor ou vencimento tenham sido alterados
-            if novo_valor != valor_antigo or novo_vencimento != vencimento_antigo:
-                for i in range(1, 12):
-                    mes_futuro = mes + i
-                    ano_futuro = ano
-                    if mes_futuro > 12:
-                        mes_futuro -= 12
-                        ano_futuro += 1
-
-                    chave_futuro = get_chave(mes_futuro, ano_futuro)
-                    info_futuro = inicializar_mes(mes_futuro, ano_futuro)
-
-                    for desp in info_futuro["despesas_fixas"]:
-                        if desp["descricao"] == descricao_alvo:
-                            desp["valor"] = novo_valor
-                            desp["vencimento"] = novo_vencimento
-                            break
-
-            salvar_dados()
-            atualizar_resumo()
-            janela.destroy()
-        except ValueError:
-            messagebox.showerror("Erro", "Valor ou vencimento inválido.")
+        d["valor"] = novo_valor
+        d["vencimento"] = novo_vencimento
+        salvar_dados()
+        atualizar_resumo()
+        janela.destroy()
 
     def alternar_status():
         d["status"] = "Pago" if d["status"] == "Aberto" else "Aberto"
@@ -2843,21 +2935,18 @@ def editar_despesa_fixa(indice):
 
     status_btn.config(command=alternar_status)
     status_btn.pack(pady=8)
-
-    ttk.Button(main_frame, text="💾 Salvar", command=salvar_alteracoes, 
-               bootstyle="success").pack(pady=15)
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar_alteracoes, bootstyle="success").pack(pady=15)
 
 def editar_gasto_cartao(gasto_original, callback_apos_salvar=None):
     janela = tk.Toplevel(app)
     janela.title("Editar Gasto no Cartão")
-
-    largura = 400
-    altura = 480
+    largura, altura = 400, 350
     x = (janela.winfo_screenwidth() // 2) - (largura // 2)
     y = (janela.winfo_screenheight() // 2) - (altura // 2)
     janela.geometry(f"{largura}x{altura}+{x}+{y}")
     janela.attributes("-topmost", True)
     janela.grab_set()
+    aplicar_icone(janela)
 
     main_frame = tk.Frame(janela, padx=25, pady=25)
     main_frame.pack(fill="both", expand=True)
@@ -2881,48 +2970,51 @@ def editar_gasto_cartao(gasto_original, callback_apos_salvar=None):
     combo_tipo.set(gasto_original.get("tipo", tipos_gasto[0]))
     combo_tipo.pack(pady=5)
 
+    def mostrar_erro_toplevel(mensagem):
+        erro_janela = tk.Toplevel(janela)
+        erro_janela.title("Erro")
+        erro_janela.geometry("350x120")
+        erro_janela.attributes("-topmost", True)
+        erro_janela.grab_set()
+        aplicar_icone(erro_janela)
+        frame = tk.Frame(erro_janela, padx=15, pady=15)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=mensagem, foreground="#dc3545", wraplength=320, font=("Inter", 10)).pack(pady=10)
+        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+        erro_janela.update_idletasks()
+        w, h = erro_janela.winfo_width(), erro_janela.winfo_height()
+        x = janela.winfo_rootx() + (janela.winfo_width() // 2) - (w // 2)
+        y = janela.winfo_rooty() + (janela.winfo_height() // 2) - (h // 2)
+        erro_janela.geometry(f"+{x}+{y}")
+
     def salvar():
         try:
             novo_desc = entrada_desc.get().strip()
             novo_valor_parcela = float(entrada_valor.get().replace(",", "."))
             novo_tipo = combo_tipo.get().strip()
-
             if not novo_desc or not novo_tipo:
                 raise ValueError("Campos não podem estar vazios.")
-
-            dia = gasto_original["dia"]
-            mes_inicial = gasto_original["mes"]
-            ano_inicial = gasto_original["ano"]
-            cartao = gasto_original["cartao"]
-            desc_original = gasto_original["descricao"]
-
-            meses_alvo = 24 if fixo else parcelas
-
-            for i in range(meses_alvo):
-                mes_fatura = mes_inicial + i
-                ano_fatura = ano_inicial + (mes_fatura - 1) // 12
-                mes_fatura = (mes_fatura - 1) % 12 + 1
-
-                chave_fatura = (mes_fatura, ano_fatura)
-                if chave_fatura not in dados:
-                    inicializar_mes(mes_fatura, ano_fatura)
-
-                for g in dados[chave_fatura]["cartao_credito"]:
-                    mesmo_gasto = (
-                        g["descricao"] == desc_original and
-                        g["cartao"] == cartao and
-                        g["dia"] == dia and
-                        g["mes"] == mes_inicial and
-                        g["ano"] == ano_inicial
-                    )
-                    if mesmo_gasto:
-                        g["descricao"] = novo_desc
-                        g["valor"] = round(novo_valor_parcela, 2)
-                        g["tipo"] = novo_tipo
-
         except Exception as e:
-            mostrar_erro_toplevel(f"Erro ao salvar: {e}", janela)
+            mostrar_erro_toplevel(f"Erro: {e}")
             return
+
+        dia, mes_inicial, ano_inicial = gasto_original["dia"], gasto_original["mes"], gasto_original["ano"]
+        cartao = gasto_original["cartao"]
+        desc_original = gasto_original["descricao"]
+        meses_alvo = 24 if fixo else parcelas
+
+        for i in range(meses_alvo):
+            mes_fatura = mes_inicial + i
+            ano_fatura = ano_inicial + (mes_fatura - 1) // 12
+            mes_fatura = (mes_fatura - 1) % 12 + 1
+            chave_fatura = (mes_fatura, ano_fatura)
+            if chave_fatura not in dados:
+                inicializar_mes(mes_fatura, ano_fatura)
+            for g in dados[chave_fatura]["cartao_credito"]:
+                if g["descricao"] == desc_original and g["cartao"] == cartao and g["dia"] == dia and g["mes"] == mes_inicial and g["ano"] == ano_inicial:
+                    g["descricao"] = novo_desc
+                    g["valor"] = round(novo_valor_parcela, 2)
+                    g["tipo"] = novo_tipo
 
         salvar_dados()
         atualizar_resumo()
@@ -2930,28 +3022,26 @@ def editar_gasto_cartao(gasto_original, callback_apos_salvar=None):
         if callback_apos_salvar:
             callback_apos_salvar()
 
-    ttk.Button(main_frame, text="💾 Salvar", command=salvar, 
-               bootstyle="success").pack(pady=25)
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar, bootstyle="success").pack(pady=25)
     janela.bind("<Return>", lambda e: salvar())
+    entrada_desc.focus_set()
 
 def editar_receita(nome_receita):
     mes = combo_mes.current() + 1
     ano = int(combo_ano.get())
     chave = get_chave(mes, ano)
     inicializar_mes(mes, ano)
-
     valor_atual = dados[chave]["receitas"].get(nome_receita, 0.0)
 
     janela = tk.Toplevel(app)
     janela.title("Editar Receita")
-
-    largura = 350
-    altura = 280
+    largura, altura = 350, 280
     x = (janela.winfo_screenwidth() // 2) - (largura // 2)
     y = (janela.winfo_screenheight() // 2) - (altura // 2)
     janela.geometry(f"{largura}x{altura}+{x}+{y}")
     janela.attributes("-topmost", True)
     janela.grab_set()
+    aplicar_icone(janela)
 
     main_frame = tk.Frame(janela, padx=20, pady=20)
     main_frame.pack(fill="both", expand=True)
@@ -2960,33 +3050,28 @@ def editar_receita(nome_receita):
     entrada_desc = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_desc.pack(pady=5)
     entrada_desc.insert(0, nome_receita)
-    entrada_desc.config(state="disabled")  # bloquear edição do nome para manter a chave correta
+    entrada_desc.config(state="disabled")
 
     ttk.Label(main_frame, text="Valor (R$):", font=("Inter", 11)).pack(pady=8)
     entrada_valor = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_valor.pack(pady=5)
     entrada_valor.insert(0, str(valor_atual).replace(".", ","))
 
-    def mostrar_erro_toplevel(mensagem, parent=janela):
-        erro_janela = tk.Toplevel(parent)
+    def mostrar_erro_toplevel(mensagem):
+        erro_janela = tk.Toplevel(janela)
         erro_janela.title("Erro")
         erro_janela.geometry("350x120")
         erro_janela.attributes("-topmost", True)
         erro_janela.grab_set()
-
-        erro_frame = tk.Frame(erro_janela, padx=15, pady=15)
-        erro_frame.pack(fill="both", expand=True)
-
-        ttk.Label(erro_frame, text=mensagem, foreground="#dc3545", wraplength=320,
-                 font=("Inter", 10)).pack(pady=10)
-        ttk.Button(erro_frame, text="OK", command=erro_janela.destroy, 
-                  bootstyle="danger").pack()
-
+        aplicar_icone(erro_janela)
+        frame = tk.Frame(erro_janela, padx=15, pady=15)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=mensagem, foreground="#dc3545", wraplength=320, font=("Inter", 10)).pack(pady=10)
+        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
         erro_janela.update_idletasks()
-        w = erro_janela.winfo_width()
-        h = erro_janela.winfo_height()
-        x = parent.winfo_rootx() + (parent.winfo_width() // 2) - (w // 2)
-        y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (h // 2)
+        w, h = erro_janela.winfo_width(), erro_janela.winfo_height()
+        x = janela.winfo_rootx() + (janela.winfo_width() // 2) - (w // 2)
+        y = janela.winfo_rooty() + (janela.winfo_height() // 2) - (h // 2)
         erro_janela.geometry(f"+{x}+{y}")
 
     def salvar():
@@ -2995,78 +3080,153 @@ def editar_receita(nome_receita):
         except:
             mostrar_erro_toplevel("Valor inválido.")
             return
-
         if valor_novo < 0:
             mostrar_erro_toplevel("Valor não pode ser negativo.")
             return
-
         dados[chave]["receitas"][nome_receita] = valor_novo
         atualizar_resumo()
         janela.destroy()
 
-    ttk.Button(main_frame, text="💾 Salvar", command=salvar, 
-               bootstyle="success").pack(pady=15)
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar, bootstyle="success").pack(pady=15)
     janela.bind("<Return>", lambda event: salvar())
 
+def editar_gasto_diario(idx, callback_apos_salvar=None):
+    mes = combo_mes.current() + 1
+    ano = int(combo_ano.get())
+    info = inicializar_mes(mes, ano)
+
+    if idx < 0 or idx >= len(info["gastos"]):
+        show_error("Erro", "Índice de gasto inválido")
+        return
+
+    gasto = info["gastos"][idx]
+
+    janela = tk.Toplevel(app)
+    janela.title("Editar Gasto Diário")
+    largura, altura = 420, 280
+    x = (janela.winfo_screenwidth() // 2) - (largura // 2)
+    y = (janela.winfo_screenheight() // 2) - (altura // 2)
+    janela.geometry(f"{largura}x{altura}+{x}+{y}")
+    janela.resizable(False, False)
+    aplicar_icone(janela)
+
+    main_frame = tk.Frame(janela, padx=20, pady=20)
+    main_frame.pack(fill="both", expand=True)
+
+    ttk.Label(main_frame, text="Descrição:", font=("Inter", 11)).pack(padx=10, pady=(10, 0), anchor="w")
+    entry_descricao = ttk.Entry(main_frame, font=("Inter", 10))
+    entry_descricao.pack(padx=10, pady=8, fill="x")
+    entry_descricao.insert(0, gasto["descricao"])
+
+    ttk.Label(main_frame, text="Valor:", font=("Inter", 11)).pack(padx=10, pady=(10, 0), anchor="w")
+    entry_valor = ttk.Entry(main_frame, font=("Inter", 10))
+    entry_valor.pack(padx=10, pady=8, fill="x")
+    entry_valor.insert(0, str(gasto["valor"]))
+
+    def mostrar_erro_toplevel(mensagem):
+        erro_janela = tk.Toplevel(janela)
+        erro_janela.title("Erro")
+        erro_janela.geometry("350x120")
+        erro_janela.attributes("-topmost", True)
+        erro_janela.grab_set()
+        aplicar_icone(erro_janela)
+        frame = tk.Frame(erro_janela, padx=15, pady=15)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=mensagem, foreground="#dc3545", wraplength=320, font=("Inter", 10)).pack(pady=10)
+        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+        erro_janela.update_idletasks()
+        w, h = erro_janela.winfo_width(), erro_janela.winfo_height()
+        x = janela.winfo_rootx() + (janela.winfo_width() // 2) - (w // 2)
+        y = janela.winfo_rooty() + (janela.winfo_height() // 2) - (h // 2)
+        erro_janela.geometry(f"+{x}+{y}")
+
+    def salvar(event=None):
+        nova_desc = entry_descricao.get().strip()
+        try:
+            novo_valor = float(entry_valor.get().replace(",", "."))
+        except:
+            mostrar_erro_toplevel("Valor inválido.")
+            return
+        if not nova_desc:
+            mostrar_erro_toplevel("Descrição não pode estar vazia.")
+            return
+
+        info["gastos"][idx]["descricao"] = nova_desc
+        info["gastos"][idx]["valor"] = novo_valor
+
+        salvar_dados()
+        atualizar_resumo()
+        janela.destroy()
+        if callback_apos_salvar:
+            callback_apos_salvar()
+
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar, bootstyle="success").pack(pady=15)
+    janela.bind("<Return>", salvar)
+    entry_descricao.focus_set()
 # ----------------------Funções excluir---------------------------------
 
 def excluir_gasto_cartao(gasto, parent_janela=None, callback_apos_excluir=None):
-    resposta = messagebox.askyesno(
-        "Excluir Gasto",
-        "Deseja excluir TODAS as parcelas deste gasto?",
-        parent=parent_janela
-    )
-    if not resposta:
-        return
+    # Janela de confirmação com ícone
+    confirm_janela = tk.Toplevel(app)
+    confirm_janela.title("Excluir Gasto")
+    largura, altura = 350, 150
+    x = (confirm_janela.winfo_screenwidth() // 2) - (largura // 2)
+    y = (confirm_janela.winfo_screenheight() // 2) - (altura // 2)
+    confirm_janela.geometry(f"{largura}x{altura}+{x}+{y}")
+    confirm_janela.attributes("-topmost", True)
+    confirm_janela.grab_set()
+    aplicar_icone(confirm_janela)
 
-    fixo = gasto.get("fixo", False)
-    total_parcelas = gasto.get("total_parcelas", 1)
-    parcelas = 24 if fixo else total_parcelas
+    frame = tk.Frame(confirm_janela, padx=20, pady=20)
+    frame.pack(fill="both", expand=True)
 
-    # Recupera os dados da compra
-    dia = gasto.get("dia")
-    mes_compra = gasto.get("mes")
-    ano_compra = gasto.get("ano")
-    cartao = gasto.get("cartao")
-    descricao = gasto.get("descricao")
+    ttk.Label(frame, text="Deseja excluir TODAS as parcelas deste gasto?", font=("Inter", 11), wraplength=320, justify="center").pack(pady=10)
 
-    # 🧠 Calcula corretamente o mês/ano da fatura como no cadastro
-    cartao_info = next((c for c in cartoes if c["nome"] == cartao), None)
-    fechamento = cartao_info.get("fechamento", 1) if cartao_info else 1
+    def confirmar():
+        fixo = gasto.get("fixo", False)
+        total_parcelas = gasto.get("total_parcelas", 1)
+        parcelas = 24 if fixo else total_parcelas
 
-    if dia > fechamento:
-        mes_inicial = mes_compra + 1
-        ano_inicial = ano_compra + (1 if mes_inicial > 12 else 0)
-        mes_inicial = 1 if mes_inicial > 12 else mes_inicial
-    else:
-        mes_inicial = mes_compra
-        ano_inicial = ano_compra
+        dia = gasto.get("dia")
+        mes_compra = gasto.get("mes")
+        ano_compra = gasto.get("ano")
+        cartao = gasto.get("cartao")
+        descricao = gasto.get("descricao")
 
-    # 🔁 Loop para excluir todas as parcelas (ou uma, se for à vista)
-    for i in range(parcelas):
-        mes_fatura = mes_inicial + i
-        ano_fatura = ano_inicial + (mes_fatura - 1) // 12
-        mes_fatura = (mes_fatura - 1) % 12 + 1
+        cartao_info = next((c for c in cartoes if c["nome"] == cartao), None)
+        fechamento = cartao_info.get("fechamento", 1) if cartao_info else 1
 
-        chave_fatura = (mes_fatura, ano_fatura)
-        if chave_fatura in dados:
-            nova_lista = []
-            for g in dados[chave_fatura]["cartao_credito"]:
-                mesmo_gasto = (
-                    g.get("descricao") == descricao and
-                    g.get("cartao") == cartao and
-                    g.get("dia") == dia and
-                    g.get("mes") == mes_compra and
-                    g.get("ano") == ano_compra
-                )
-                if not mesmo_gasto:
-                    nova_lista.append(g)
-            dados[chave_fatura]["cartao_credito"] = nova_lista
+        if dia > fechamento:
+            mes_inicial = mes_compra + 1
+            ano_inicial = ano_compra + (1 if mes_inicial > 12 else 0)
+            mes_inicial = 1 if mes_inicial > 12 else mes_inicial
+        else:
+            mes_inicial = mes_compra
+            ano_inicial = ano_compra
 
-    salvar_dados()
-    atualizar_resumo()
-    if callback_apos_excluir:
-        callback_apos_excluir()
+        for i in range(parcelas):
+            mes_fatura = mes_inicial + i
+            ano_fatura = ano_inicial + (mes_fatura - 1) // 12
+            mes_fatura = (mes_fatura - 1) % 12 + 1
+
+            chave_fatura = (mes_fatura, ano_fatura)
+            if chave_fatura in dados:
+                dados[chave_fatura]["cartao_credito"] = [
+                    g for g in dados[chave_fatura]["cartao_credito"]
+                    if not (g.get("descricao") == descricao and g.get("cartao") == cartao
+                            and g.get("dia") == dia and g.get("mes") == mes_compra and g.get("ano") == ano_compra)
+                ]
+
+        salvar_dados()
+        atualizar_resumo()
+        if callback_apos_excluir:
+            callback_apos_excluir()
+        confirm_janela.destroy()
+
+    botoes = tk.Frame(frame)
+    botoes.pack(pady=10)
+    ttk.Button(botoes, text="✓ Sim", command=confirmar, bootstyle="danger").pack(side="left", padx=10)
+    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
 
 def excluir_despesa_fixa(idx):
     mes = combo_mes.current() + 1
@@ -3081,29 +3241,41 @@ def excluir_despesa_fixa(idx):
     except IndexError:
         return
 
-    confirmar = messagebox.askyesno(
-        "Confirmação",
-        f"Deseja realmente excluir a despesa fixa '{descricao_target}' a partir de {mes:02d}/{ano}?"
-    )
+    # Janela de confirmação personalizada
+    confirm_janela = tk.Toplevel(app)
+    confirm_janela.title("Confirmação")
+    largura, altura = 400, 180
+    x = (confirm_janela.winfo_screenwidth() // 2) - (largura // 2)
+    y = (confirm_janela.winfo_screenheight() // 2) - (altura // 2)
+    confirm_janela.geometry(f"{largura}x{altura}+{x}+{y}")
+    confirm_janela.attributes("-topmost", True)
+    confirm_janela.grab_set()
+    aplicar_icone(confirm_janela)
 
-    if not confirmar:
-        return  # Usuário cancelou
+    frame = tk.Frame(confirm_janela, padx=20, pady=20)
+    frame.pack(fill="both", expand=True)
 
-    for ano_loop in range(ano, 2101):
-        for mes_loop in range(1, 13):
-            if ano_loop == ano and mes_loop < mes:
-                continue
+    ttk.Label(frame, text=f"Deseja realmente excluir a despesa fixa '{descricao_target}' a partir de {mes:02d}/{ano}?",
+              font=("Inter", 11), wraplength=360, justify="center").pack(pady=15)
 
-            chave = get_chave(mes_loop, ano_loop)
-            if chave not in dados:
-                continue
+    def confirmar():
+        for ano_loop in range(ano, 2101):
+            for mes_loop in range(1, 13):
+                if ano_loop == ano and mes_loop < mes:
+                    continue
+                chave = get_chave(mes_loop, ano_loop)
+                if chave in dados:
+                    dados[chave]["despesas_fixas"] = [
+                        d for d in dados[chave]["despesas_fixas"]
+                        if d.get("descricao") != descricao_target
+                    ]
+        atualizar_resumo()
+        confirm_janela.destroy()
 
-            dados[chave]["despesas_fixas"] = [
-                d for d in dados[chave]["despesas_fixas"]
-                if d.get("descricao") != descricao_target
-            ]
-
-    atualizar_resumo()
+    botoes = tk.Frame(frame)
+    botoes.pack()
+    ttk.Button(botoes, text="✓ Sim", command=confirmar, bootstyle="danger").pack(side="left", padx=10)
+    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
 
 def excluir_receita(nome_receita):
     mes = combo_mes.current() + 1
@@ -3111,12 +3283,34 @@ def excluir_receita(nome_receita):
     chave = get_chave(mes, ano)
     info = inicializar_mes(mes, ano)
 
-    if nome_receita in info["receitas"]:
-        confirmar = messagebox.askyesno("Excluir Receita", f"Deseja excluir a receita '{nome_receita}' deste mês?")
-        if confirmar:
-            del info["receitas"][nome_receita]
-            salvar_dados()
-            atualizar_resumo()
+    if nome_receita not in info["receitas"]:
+        return
+
+    # Janela de confirmação personalizada
+    confirm_janela = tk.Toplevel(app)
+    confirm_janela.title("Excluir Receita")
+    largura, altura = 350, 150
+    x = (confirm_janela.winfo_screenwidth() // 2) - (largura // 2)
+    y = (confirm_janela.winfo_screenheight() // 2) - (altura // 2)
+    confirm_janela.geometry(f"{largura}x{altura}+{x}+{y}")
+    confirm_janela.attributes("-topmost", True)
+    confirm_janela.grab_set()
+    aplicar_icone(confirm_janela)
+
+    frame = tk.Frame(confirm_janela, padx=20, pady=20)
+    frame.pack(fill="both", expand=True)
+    ttk.Label(frame, text=f"Deseja excluir a receita '{nome_receita}' deste mês?", font=("Inter", 11), wraplength=320, justify="center").pack(pady=15)
+
+    def confirmar():
+        del info["receitas"][nome_receita]
+        salvar_dados()
+        atualizar_resumo()
+        confirm_janela.destroy()
+
+    botoes = tk.Frame(frame)
+    botoes.pack()
+    ttk.Button(botoes, text="✓ Sim", command=confirmar, bootstyle="danger").pack(side="left", padx=10)
+    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
 
 def excluir_gasto_diario(idx, janela_detalhes=None, callback_apos_excluir=None):
     mes = combo_mes.current() + 1
@@ -3124,23 +3318,40 @@ def excluir_gasto_diario(idx, janela_detalhes=None, callback_apos_excluir=None):
     info = inicializar_mes(mes, ano)
 
     if idx < 0 or idx >= len(info["gastos"]):
-        messagebox.showerror("Erro", "Índice de gasto inválido", parent=janela_detalhes)
+        show_error("Erro", "Índice de gasto inválido", parent=janela_detalhes)
         return
 
     gasto = info["gastos"][idx]
 
-    resposta = messagebox.askyesno(
-        "Confirmação",
-        f"Excluir gasto '{gasto['descricao']}' no dia {gasto['dia']}?",
-        parent=janela_detalhes
-    )
+    # Janela de confirmação personalizada
+    confirm_janela = tk.Toplevel(app)
+    confirm_janela.title("Excluir Gasto Diário")
+    largura, altura = 380, 160
+    x = (confirm_janela.winfo_screenwidth() // 2) - (largura // 2)
+    y = (confirm_janela.winfo_screenheight() // 2) - (altura // 2)
+    confirm_janela.geometry(f"{largura}x{altura}+{x}+{y}")
+    confirm_janela.attributes("-topmost", True)
+    confirm_janela.grab_set()
+    aplicar_icone(confirm_janela)
 
-    if resposta:
+    frame = tk.Frame(confirm_janela, padx=20, pady=20)
+    frame.pack(fill="both", expand=True)
+
+    ttk.Label(frame, text=f"Excluir gasto '{gasto['descricao']}' no dia {gasto['dia']}?",
+              font=("Inter", 11), wraplength=340, justify="center").pack(pady=15)
+
+    def confirmar():
         info["gastos"].pop(idx)
         salvar_dados()
         atualizar_resumo()
         if callback_apos_excluir:
             callback_apos_excluir()
+        confirm_janela.destroy()
+
+    botoes = tk.Frame(frame)
+    botoes.pack()
+    ttk.Button(botoes, text="✓ Sim", command=confirmar, bootstyle="danger").pack(side="left", padx=10)
+    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
 
 # -------------------------Interface------------------------------------
 frame_selecao = tk.Frame(app, pady=15, bg="#0d6efd")
