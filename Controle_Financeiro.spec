@@ -2,25 +2,23 @@
 import os
 import sys
 import glob
+from PyInstaller.utils.hooks import collect_submodules
 
 project_dir = os.path.abspath(".")
 icon_path = os.path.join(project_dir, "icone.ico")
 
-# Detecta diretório do Python
+# Diretório do Python
 python_dir = os.path.dirname(sys.executable)
 python_version = f"{sys.version_info.major}{sys.version_info.minor}"
 
-# Coleta DLLs essenciais manualmente
+# DLLs essenciais
 dlls_to_include = []
 
-# DLLs principais
-python_dll = os.path.join(python_dir, f"python{python_version}.dll")
-if os.path.exists(python_dll):
-    dlls_to_include.append((python_dll, '.'))
-
-python3_dll = os.path.join(python_dir, "python3.dll")
-if os.path.exists(python3_dll):
-    dlls_to_include.append((python3_dll, '.'))
+# DLLs principais do Python
+for dll_name in [f"python{python_version}.dll", "python3.dll"]:
+    dll_path = os.path.join(python_dir, dll_name)
+    if os.path.exists(dll_path):
+        dlls_to_include.append((dll_path, '.'))
 
 # DLLs do VC++
 for dll_name in ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "concrt140.dll"]:
@@ -30,7 +28,7 @@ for dll_name in ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "conc
             dlls_to_include.append((path_try, '.'))
             break
 
-# DLLs adicionais do diretório DLLs do Python
+# DLLs adicionais da pasta DLLs do Python
 dlls_dir = os.path.join(python_dir, 'DLLs')
 if os.path.exists(dlls_dir):
     for dll_file in glob.glob(os.path.join(dlls_dir, '*.dll')):
@@ -38,17 +36,20 @@ if os.path.exists(dlls_dir):
         if dll_name.startswith(('python', '_')):
             dlls_to_include.append((dll_file, '.'))
 
+# Hidden imports do Tkinter, PIL e ttkbootstrap
+hidden_imports = collect_submodules('tkinter') + [
+    'tkinter.messagebox',
+    'PIL.Image', 'PIL.ImageTk',
+    'ttkbootstrap', 'ttkbootstrap.constants'
+]
+
 a = Analysis(
     ['Controle Financeiro.pyw'],
     pathex=[project_dir],
     binaries=dlls_to_include,
-    datas=[('icone.png', '.')],
-    hiddenimports=[
-        'tkinter', 'tkinter.ttk', 'tkinter.messagebox',
-        'PIL.Image', 'PIL.ImageTk', 'ttkbootstrap', 'ttkbootstrap.constants'
-    ],
+    datas=[('icone.png', '.'), ('updater.pyw', '.')],
+    hiddenimports=hidden_imports,
     hookspath=[],
-    hooksconfig={},
     runtime_hooks=[],
     excludes=[],
     noarchive=False,
@@ -67,8 +68,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    upx_exclude=[],
+    upx=False,  # ⚠️ Desativado para evitar erro de DLL
     console=False,
     icon=icon_path,
 )

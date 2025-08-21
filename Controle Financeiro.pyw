@@ -1,4 +1,4 @@
-VERSAO_ATUAL = "1.0.7"
+VERSAO_ATUAL = "1.0.8"
 
 import os, sys, time, json, copy, math, subprocess, webbrowser, urllib.request, locale
 from datetime import datetime
@@ -26,7 +26,7 @@ def buscar_atualizacao():
             versao_remota = response.read().decode().strip()
 
         if versao_remota > VERSAO_ATUAL:
-            # Janela de confirmação customizada
+            # Janela de confirmação
             confirm_janela = tk.Toplevel(app)
             confirm_janela.title("Atualização disponível")
             confirm_janela.resizable(False, False)
@@ -48,54 +48,14 @@ def buscar_atualizacao():
             botoes = tk.Frame(frame, bg="#f8f9fa")
             botoes.pack()
 
-            def sim():
-                baixar_e_instalar_atualizacao()
-                confirm_janela.destroy()
-
-            ttk.Button(botoes, text="✓ Sim", command=sim, bootstyle="success").pack(side="left", padx=10)
+            ttk.Button(botoes, text="✓ Sim", command=lambda: [baixar_e_instalar_atualizacao(), confirm_janela.destroy()], bootstyle="success").pack(side="left", padx=10)
             ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
 
         else:
-            # Janela de informação customizada
-            info_janela = tk.Toplevel(app)
-            info_janela.title("Atualização")
-            info_janela.resizable(False, False)
-            largura, altura = 300, 120
-            x = (app.winfo_screenwidth() // 2) - (largura // 2)
-            y = (app.winfo_screenheight() // 2) - (altura // 2)
-            info_janela.geometry(f"{largura}x{altura}+{x}+{y}")
-            info_janela.grab_set()
-            info_janela.attributes("-topmost", True)
-            info_janela.configure(bg="#f8f9fa")
-            aplicar_icone(info_janela)
-
-            frame_info = tk.Frame(info_janela, bg="#f8f9fa", padx=20, pady=20)
-            frame_info.pack(fill="both", expand=True)
-
-            ttk.Label(frame_info, text="Você já está usando a versão mais recente.",
-                      font=("Inter", 11), justify="center", wraplength=280).pack(pady=10)
-            ttk.Button(frame_info, text="OK", command=info_janela.destroy, bootstyle="secondary").pack()
+            tk.messagebox.showinfo("Atualização", "Você já está usando a versão mais recente.", parent=app)
 
     except Exception as e:
-        # Janela de erro customizada
-        erro_janela = tk.Toplevel(app)
-        erro_janela.title("Erro")
-        erro_janela.resizable(False, False)
-        largura, altura = 360, 140
-        x = (app.winfo_screenwidth() // 2) - (largura // 2)
-        y = (app.winfo_screenheight() // 2) - (altura // 2)
-        erro_janela.geometry(f"{largura}x{altura}+{x}+{y}")
-        erro_janela.grab_set()
-        erro_janela.attributes("-topmost", True)
-        erro_janela.configure(bg="#f8f9fa")
-        aplicar_icone(erro_janela)
-
-        frame_erro = tk.Frame(erro_janela, bg="#f8f9fa", padx=20, pady=20)
-        frame_erro.pack(fill="both", expand=True)
-
-        ttk.Label(frame_erro, text=f"Erro ao verificar atualização:\n{e}",
-                  font=("Inter", 11), justify="center", wraplength=320).pack(pady=10)
-        ttk.Button(frame_erro, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+        tk.messagebox.showerror("Erro", f"Erro ao verificar atualização:\n{e}", parent=app)
 
 def baixar_e_instalar_atualizacao():
     try:
@@ -103,109 +63,35 @@ def baixar_e_instalar_atualizacao():
         with urllib.request.urlopen(url_api, timeout=10) as response:
             release = json.loads(response.read().decode())
 
-        exe_url = None
-        for asset in release["assets"]:
-            if asset["name"].endswith(".exe"):
-                exe_url = asset["browser_download_url"]
-                break
-
+        exe_url = next((asset["browser_download_url"] for asset in release["assets"] if asset["name"].endswith(".exe")), None)
         if not exe_url:
             raise Exception("Nenhum executável .exe encontrado na última release.")
 
         caminho_atual = os.path.abspath(sys.argv[0])
         pasta = os.path.dirname(caminho_atual)
-        nome_atual = os.path.basename(caminho_atual)
         
-        # Criar pasta temporária para download
         temp_dir = os.path.join(pasta, "_temp_update")
         os.makedirs(temp_dir, exist_ok=True)
         
         novo_exe = os.path.join(temp_dir, "novo_controle_financeiro.exe")
 
-        # Download com verificação de integridade
-        print("Baixando atualização...")
+        # Baixa o arquivo
         with urllib.request.urlopen(exe_url, timeout=30) as response:
-            total_size = int(response.headers.get('Content-Length', 0))
             conteudo = response.read()
-            
-            if len(conteudo) < 5_000_000:  # Mínimo 5MB para um executável válido
+            if len(conteudo) < 5_000_000:
                 raise Exception("Arquivo baixado parece incompleto ou corrompido.")
-            
-            with open(novo_exe, 'wb') as out_file:
-                out_file.write(conteudo)
+            with open(novo_exe, 'wb') as f:
+                f.write(conteudo)
 
-        # Verificar se o arquivo baixado é executável válido
-        if not os.path.exists(novo_exe):
-            raise Exception("Falha ao salvar o arquivo de atualização.")
+        # Chama updater externo
+        updater_path = os.path.join(pasta, "updater.pyw")
+        subprocess.Popen(["pythonw", updater_path, caminho_atual, novo_exe], creationflags=subprocess.CREATE_NO_WINDOW)
 
-        # Criar script de atualização mais robusto
-        bat_path = os.path.join(temp_dir, "update_safe.bat")
-        with open(bat_path, "w", encoding="utf-8") as f:
-            f.write(f"""@echo off
-setlocal EnableDelayedExpansion
-chcp 65001 >nul
+        app.destroy()  # fecha app principal para permitir atualização
 
-set "old_exe={nome_atual}"
-set "new_exe=novo_controle_financeiro.exe"
-set "app_path={pasta}"
-set "temp_path={temp_dir}"
+    except Exception as e:
+        tk.messagebox.showerror("Erro", f"Falha ao atualizar:\n{e}", parent=app)
 
-echo Iniciando processo de atualização...
-
-REM Aguarda o processo anterior fechar completamente
-:wait_close
-tasklist /fi "imagename eq %old_exe%" 2>nul | find /i "%old_exe%" >nul
-if not errorlevel 1 (
-    echo Aguardando fechamento do aplicativo...
-    timeout /t 3 /nobreak >nul
-    goto wait_close
-)
-
-REM Cria backup do arquivo atual
-echo Criando backup...
-if exist "%app_path%\\%old_exe%" (
-    copy "%app_path%\\%old_exe%" "%temp_path%\\backup_%old_exe%" >nul 2>&1
-)
-
-REM Remove o arquivo antigo
-:remove_old
-if exist "%app_path%\\%old_exe%" (
-    del "%app_path%\\%old_exe%" >nul 2>&1
-    if exist "%app_path%\\%old_exe%" (
-        timeout /t 3 /nobreak >nul
-        goto remove_old
-    )
-)
-
-REM Move o novo arquivo
-echo Instalando nova versão...
-move "%temp_path%\\%new_exe%" "%app_path%\\%old_exe%" >nul 2>&1
-
-REM Verifica se a cópia foi bem-sucedida
-if exist "%app_path%\\%old_exe%" (
-    echo Atualização concluída com sucesso!
-    
-    REM Inicia o novo aplicativo
-    cd /d "%app_path%"
-    start "" "%old_exe%"
-    
-    REM Remove arquivos temporários
-    timeout /t 3 /nobreak >nul
-    rmdir /s /q "%temp_path%" >nul 2>&1
-) else (
-    echo ERRO: Falha na atualização!
-    REM Restaura backup se disponível
-    if exist "%temp_path%\\backup_%old_exe%" (
-        echo Restaurando versão anterior...
-        copy "%temp_path%\\backup_%old_exe%" "%app_path%\\%old_exe%" >nul 2>&1
-    )
-    pause
-)
-
-REM Remove este script
-del "%~f0" >nul 2>&1
-endlocal
-""")
 
         # Salvar dados antes de fechar
         salvar_dados()

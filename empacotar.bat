@@ -31,11 +31,16 @@ REM Limpa builds antigos
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 
-REM Backup do executável anterior
+REM Backup do executável e updater
 if exist "dist\Controle Financeiro\Controle Financeiro.exe" (
-    echo Criando backup...
+    echo Criando backup do exe...
     if not exist backup mkdir backup
     copy "dist\Controle Financeiro\Controle Financeiro.exe" "backup\Controle_Backup_%date:~-10,2%-%date:~-7,2%-%date:~-4,4%.exe"
+)
+
+if exist "dist\Controle Financeiro\updater.pyw" (
+    echo Criando backup do updater...
+    copy "dist\Controle Financeiro\updater.pyw" "backup\updater_Backup_%date:~-10,2%-%date:~-7,2%-%date:~-4,4%.pyw"
 )
 
 REM Empacota usando o .spec
