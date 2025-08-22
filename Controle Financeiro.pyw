@@ -562,6 +562,7 @@ def criar_menu():
     app.config(menu=menubar)
 
 def definir_inicio_uso():
+    """Janela para definir o mês/ano de início de uso do sistema."""
     global inicio_uso
 
     janela = tk.Toplevel(app)
@@ -631,7 +632,7 @@ def definir_inicio_uso():
 
             inicio_uso = (mes, ano)
             salvar_dados()
-            recalcular_saldos_em_cadeia()
+            recalcular_saldos_em_cadeia()  # Recalcula todos os meses
             atualizar_resumo()
 
             mostrar_mensagem("Sucesso", f"Início do uso definido para {mes:02d}/{ano}", tipo="info",
@@ -1418,81 +1419,22 @@ def carregar_parcelas_cartao_para_mes(mes, ano):
     return parcelas
 
 def inicializar_mes(mes, ano):
-    global inicio_uso
-    chave = get_chave(mes, ano)
-
-    # Define mes_inicio e ano_inicio
-    if inicio_uso:
-        mes_inicio, ano_inicio = inicio_uso
-    else:
-        agora = datetime.now()
-        mes_inicio = agora.month
-        ano_inicio = agora.year
-
-    # Se o mês já existe, apenas garante campos obrigatórios
-    if chave in dados:
-        info = dados[chave]
-        info["receitas"] = info.get("receitas", {})
-        info["conta"] = info.get("conta", 0.0)
-        info["despesas_fixas"] = info.get("despesas_fixas", [])
-        info["gastos"] = info.get("gastos", [])
-        info["cartao_credito"] = info.get("cartao_credito", carregar_parcelas_cartao_para_mes(mes, ano))
-        info["tipos"] = info.get("tipos", [])
-        return info
-
-    # --- Meses anteriores ao início de uso ---
-    if (ano < ano_inicio) or (ano == ano_inicio and mes < mes_inicio):
+    """Inicializa os dados do mês/ano se ainda não existirem."""
+    chave = (mes, ano)
+    if chave not in dados:
         dados[chave] = {
-            "receitas": {},
-            "conta": 0.0,
             "despesas_fixas": [],
             "gastos": [],
-            "cartao_credito": carregar_parcelas_cartao_para_mes(mes, ano),
-            "tipos": []
+            "cartao_credito": [],
+            "receitas": {},   # Agora é dict
+            "conta": 0.0      # Saldo inicial
         }
-        return dados[chave]
 
-    # --- Inicializa mês normalmente ---
-    despesas_validas = []
-    for d in contas_fixas_modelo:
-        mes_inicio_d, ano_inicio_d = d.get("inicio", (1, 1900))
-        if (ano_inicio_d, mes_inicio_d) <= (ano, mes):
-            despesas_validas.append(d)
-
-    dados[chave] = {
-        "receitas": {},
-        "conta": 0.0,
-        "despesas_fixas": copy.deepcopy(despesas_validas),
-        "gastos": [],
-        "cartao_credito": carregar_parcelas_cartao_para_mes(mes, ano),
-        "tipos": []
-    }
-
-    # Calcular saldo do mês anterior
-    mes_ant = mes - 1 if mes > 1 else 12
-    ano_ant = ano if mes > 1 else ano - 1
-    if (ano_ant > ano_inicio) or (ano_ant == ano_inicio and mes_ant >= mes_inicio):
-        chave_anterior = get_chave(mes_ant, ano_ant)
-        if chave_anterior in dados:
-            info_ant = dados[chave_anterior]
-
-            total_receitas_ant = sum(info_ant.get("receitas", {}).values())
-            total_gastos_ant = sum(g.get("valor", 0) for g in info_ant.get("gastos", []))
-            total_credito_ant = sum(c.get("valor", 0) for c in info_ant.get("cartao_credito", []))
-            total_despesas_todas_ant = sum(d.get("valor", 0) for d in info_ant.get("despesas_fixas", []))
-
-            saldo_final_mes_anterior = (
-                info_ant.get("conta", 0.0)
-                + total_receitas_ant
-                - total_gastos_ant
-                - total_credito_ant
-                - total_despesas_todas_ant
-            )
-            dados[chave]["conta"] = saldo_final_mes_anterior
-    else:
-        dados[chave]["conta"] = 0.0
-
-    return dados[chave]
+        # adiciona apenas as despesas cujo início é <= mes/ano
+        for desp in contas_fixas_modelo:
+            inicio_mes, inicio_ano = desp["inicio"]
+            if (inicio_ano < ano) or (inicio_ano == ano and inicio_mes <= mes):
+                dados[chave]["despesas_fixas"].append(desp.copy())
 
 def calcular_saldo(chave):
     info = dados[chave]
@@ -1504,6 +1446,7 @@ def calcular_saldo(chave):
     return total_receitas - total_gastos - total_credito_pago - total_despesas_pagas
 
 def recalcular_saldo_inicial(chave):
+    """Recalcula o saldo inicial do mês com base no mês anterior."""
     mes, ano = chave
     mes_ant = mes - 1 if mes > 1 else 12
     ano_ant = ano if mes > 1 else ano - 1
@@ -1515,29 +1458,33 @@ def recalcular_saldo_inicial(chave):
     mes_inicio, ano_inicio = inicio_uso
 
     # Meses anteriores ao início não devem ter saldo nem despesas fixas
-    if (ano_ant < ano_inicio) or (ano_ant == ano_inicio and mes_ant < mes_inicio):
+    if (ano < ano_inicio) or (ano == ano_inicio and mes < mes_inicio):
         if chave in dados:
             dados[chave]["conta"] = 0.0
             dados[chave]["despesas_fixas"] = []
+            # garante que receitas seja dict
+            if not isinstance(dados[chave].get("receitas"), dict):
+                dados[chave]["receitas"] = {}
         return
 
+    # Saldo inicial é o saldo final do mês anterior
     if chave_anterior in dados:
         info_ant = dados[chave_anterior]
 
-        total_receitas_ant = sum(info_ant.get("receitas", {}).values())
+        # garante que receitas seja dict
+        receitas_ant = info_ant.get("receitas")
+        if not isinstance(receitas_ant, dict):
+            receitas_ant = {}
+            info_ant["receitas"] = {}
+
+        total_receitas_ant = sum(receitas_ant.values())
         total_gastos_ant = sum(g.get("valor", 0) for g in info_ant.get("gastos", []))
         total_credito_ant = sum(c.get("valor", 0) for c in info_ant.get("cartao_credito", []))
-        total_despesas_todas_ant = sum(d.get("valor", 0) for d in info_ant.get("despesas_fixas", []))
+        total_despesas_ant = sum(d.get("valor", 0) for d in info_ant.get("despesas_fixas", []))
 
-        saldo_final_mes_anterior = (
-            info_ant.get("conta", 0.0)
-            + total_receitas_ant
-            - total_gastos_ant
-            - total_credito_ant
-            - total_despesas_todas_ant
-        )
+        saldo_final_ant = info_ant.get("conta", 0.0) + total_receitas_ant - total_gastos_ant - total_credito_ant - total_despesas_ant
 
-        dados[chave]["conta"] = saldo_final_mes_anterior
+        dados[chave]["conta"] = saldo_final_ant
 
 def recalcular_saldos_em_cadeia():
     if not inicio_uso:
@@ -1549,6 +1496,7 @@ def recalcular_saldos_em_cadeia():
 
     ano, mes = ano_inicio, mes_inicio
 
+    # Percorre todos os meses do início até o mês atual
     while (ano < ano_atual) or (ano == ano_atual and mes <= mes_atual):
         chave = (mes, ano)
         inicializar_mes(mes, ano)
@@ -1684,6 +1632,7 @@ def atualizar_resumo(*args):
         btn_excluir.pack(side="right", anchor="e", padx=5)
         btn_excluir.bind("<Button-1>", lambda e, n=nome: excluir_receita(n))
 
+
     # --- DESPESAS FIXAS ---
     total_despesas_fixas = sum(d["valor"] for d in despesas_fixas)
     frame_despesas_topo = criar_cabecalho_com_detalhes(
@@ -1797,6 +1746,15 @@ def atualizar_resumo(*args):
                                  bg="#d9e3f1")
     label_saldo_final.configure(fg=cor_saldo_final)
     label_saldo_final.pack(anchor="w", pady=(5, 0))
+    # --- Gastos finais (diários + cartão) por tipo ---
+    gastos_por_tipo = {}
+    for g in gastos_diarios:
+        tipo = g.get("tipo", "Outros")
+        gastos_por_tipo[tipo] = gastos_por_tipo.get(tipo, 0) + g.get("valor", 0)
+
+    for c in cartoes:
+        tipo = c.get("tipo", "Outros")
+        gastos_por_tipo[tipo] = gastos_por_tipo.get(tipo, 0) + c.get("valor", 0)
 
     label_gastos_tipo = tk.Label(
         resumo_container,
@@ -1805,8 +1763,26 @@ def atualizar_resumo(*args):
         bg="#d9e3f1",
         fg="#0d6efd"
     )
-    label_gastos_tipo.configure(fg="#7B8ACB")
     label_gastos_tipo.pack(anchor="w", pady=(15, 5))
+
+    tipos = sorted(gastos_por_tipo.items(), key=lambda x: x[0])
+    max_por_linha = (len(tipos) + 1) // 2  # até 2 linhas
+
+    for linha in range(2):
+        frame_linha = tk.Frame(resumo_container, bg="#d9e3f1")
+        frame_linha.pack(anchor="w", pady=2)
+        for idx in range(linha * max_por_linha, min((linha + 1) * max_por_linha, len(tipos))):
+            tipo, valor = tipos[idx]
+            cor = "#0d6efd" if valor >= 0 else "#dc3545"
+            lbl = tk.Label(
+                frame_linha,
+                text=f"{tipo}: {locale.currency(valor, grouping=True)}",
+                font=("Inter", 11, "bold"),
+                bg="#d9e3f1",
+                fg=cor,
+                padx=10
+            )
+            lbl.pack(side="left", anchor="w")
 
 def criar_resumo_simples(container, titulo, total, comando_abrir):
     frame = ttk.Frame(container)
@@ -1849,6 +1825,7 @@ def mostrar_erro_toplevel(mensagem, parent):
     y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (h // 2)
     erro_janela.geometry(f"+{x}+{y}")
     aplicar_icone(erro_janela)
+
 # ----------------------Gastos detalhados-------------------------------
 
 def _renderizar_gastos(container, recarregar_callback=None, janela_detalhes=None):
@@ -1857,7 +1834,13 @@ def _renderizar_gastos(container, recarregar_callback=None, janela_detalhes=None
     chave = get_chave(mes, ano)
     info = dados[chave]
 
-    gastos_ordenados = sorted(enumerate(info["gastos"]), key=lambda x: (x[1].get("dia", 99), x[1].get("tipo", ""), x[1].get("descricao", "")))
+    # Ordena os gastos por dia, tipo e descrição
+    gastos_ordenados = sorted(
+        enumerate(info["gastos"]),
+        key=lambda x: (x[1].get("dia", 99), x[1].get("tipo", ""), x[1].get("descricao", ""))
+    )
+
+    # Agrupa por dia
     gastos_por_dia = defaultdict(list)
     for idx, gasto in gastos_ordenados:
         dia = gasto.get("dia", "??")
@@ -1871,6 +1854,7 @@ def _renderizar_gastos(container, recarregar_callback=None, janela_detalhes=None
             f.pack(fill="x", padx=12, pady=(8, 12))
             estado_expansao_gastos_diarios[dia_local] = True
 
+    # Renderiza cada dia
     for dia in sorted(gastos_por_dia):
         lista = gastos_por_dia[dia]
 
@@ -1888,41 +1872,76 @@ def _renderizar_gastos(container, recarregar_callback=None, janela_detalhes=None
 
         frame_detalhes = ttk.Frame(container_dia, padding=(18, 8))
 
+        # Agrupa por tipo de gasto
         gastos_por_tipo = defaultdict(list)
         for idx, gasto in lista:
             tipo = gasto.get("tipo", "Indefinido")
-            gastos_por_tipo[tipo].append(gasto)
+            gastos_por_tipo[tipo].append((idx, gasto))
 
+        # Renderiza cada tipo de gasto
         for tipo, gastos_lista in sorted(gastos_por_tipo.items()):
-            label_tipo = ttk.Label(frame_detalhes, text=f"🏷️ {tipo}:", font=("Inter", 11, "bold"), 
-                                 foreground="#495057")
+            label_tipo = ttk.Label(
+                frame_detalhes,
+                text=f"🏷️ {tipo}:",
+                font=("Inter", 11, "bold"),
+                foreground="#495057"
+            )
             label_tipo.pack(anchor="w", padx=12, pady=(8, 3))
 
-            for idx, gasto in enumerate(info["gastos"]):
-                if gasto in gastos_lista:
-                    valor_fmt = locale.currency(gasto["valor"], grouping=True)
-                    desc = gasto.get("descricao", "Sem descrição")
-                    usuario = gasto.get("usuario", "Desconhecido")
-                    gasto_text = f"• {desc}: {valor_fmt} (Responsável: {usuario})"
+            # Renderiza cada gasto do tipo
+            for idx, gasto in gastos_lista:
+                valor_fmt = locale.currency(gasto["valor"], grouping=True)
+                desc = gasto.get("descricao", "Sem descrição")
+                usuario = gasto.get("usuario", "Desconhecido")
+                gasto_text = f"• {desc}: {valor_fmt} (Responsável: {usuario})"
 
-                    container_gasto = ttk.Frame(frame_detalhes)
-                    container_gasto.pack(anchor="w", fill="x", padx=35, pady=3)
+                container_gasto = ttk.Frame(frame_detalhes)
+                container_gasto.pack(anchor="w", fill="x", padx=35, pady=3)
 
-                    ttk.Label(container_gasto, text=gasto_text, font=("Inter", 10), 
-                            foreground="#212529").pack(side="left")
+                ttk.Label(
+                    container_gasto,
+                    text=gasto_text,
+                    font=("Inter", 10),
+                    foreground="#212529"
+                ).pack(side="left")
 
-                    btn_editar = ttk.Label(container_gasto, text="✏️", font=("Inter", 12), 
-                                         foreground="#0d6efd", cursor="hand2")
-                    btn_editar.pack(side="left", padx=10)
-                    btn_editar.bind("<Button-1>", lambda e, idx=idx: editar_gasto_diario(idx, callback_apos_salvar=recarregar_callback))
+                # Botão editar
+                btn_editar = ttk.Label(
+                    container_gasto,
+                    text="✏️",
+                    font=("Inter", 12),
+                    foreground="#0d6efd",
+                    cursor="hand2"
+                )
+                btn_editar.pack(side="left", padx=10)
+                btn_editar.bind(
+                    "<Button-1>",
+                    lambda e, i=idx: editar_gasto_diario(i, callback_apos_salvar=recarregar_callback)
+                )
 
-                    btn_excluir = ttk.Label(container_gasto, text="🗑️", font=("Inter", 12), 
-                                          foreground="#dc3545", cursor="hand2")
-                    btn_excluir.pack(side="left")
-                    btn_excluir.bind("<Button-1>", lambda e, idx=idx: excluir_gasto_diario(
-                        idx, janela_detalhes=janela_detalhes, callback_apos_excluir=recarregar_callback))
+                # Botão excluir
+                btn_excluir = ttk.Label(
+                    container_gasto,
+                    text="🗑️",
+                    font=("Inter", 12),
+                    foreground="#dc3545",
+                    cursor="hand2"
+                )
+                btn_excluir.pack(side="left")
+                btn_excluir.bind(
+                    "<Button-1>",
+                    lambda e, i=idx: excluir_gasto_diario(
+                        i,
+                        janela_detalhes=janela_detalhes,
+                        callback_apos_excluir=recarregar_callback
+                    )
+                )
 
-        label_dia.bind("<Button-1>", lambda e, f=frame_detalhes, d=dia: toggle_detalhes_gastos(f, d))
+        # Expansão/colapso dos dias
+        label_dia.bind(
+            "<Button-1>",
+            lambda e, f=frame_detalhes, d=dia: toggle_detalhes_gastos(f, d)
+        )
         if estado_expansao_gastos_diarios.get(dia):
             frame_detalhes.pack(fill="x", padx=12, pady=(8, 12))
 
@@ -1947,7 +1966,8 @@ def mostrar_gastos_detalhados():
     frame_centro = ttk.Frame(header_frame)
     frame_centro.pack(expand=True)
 
-    frame_container = ttk.Frame()  # Placeholder
+    # Container que vai receber os gastos (dentro de um canvas com scroll)
+    frame_container = ttk.Frame()
 
     def recarregar_gastos():
         for widget in frame_container.winfo_children():
@@ -1958,14 +1978,19 @@ def mostrar_gastos_detalhados():
             janela_detalhes=nova_janela
         )
 
+    # Botão adicionar gasto
     btn_adicionar = ttk.Button(
         frame_centro,
         text="➕ Adicionar Gasto Diário",
-        command=lambda: adicionar_valor("Adicionar Gasto", "gasto", callback_apos_salvar=recarregar_gastos),
+        command=lambda: adicionar_valor(
+            "Adicionar Gasto", "gasto",
+            callback_apos_salvar=recarregar_gastos
+        ),
         bootstyle="success"
     )
     btn_adicionar.pack(pady=15)
 
+    # Scroll
     canvas = tk.Canvas(nova_janela, highlightthickness=0)
     scrollbar = ttk.Scrollbar(nova_janela, orient="vertical", command=canvas.yview)
     frame_container = ttk.Frame(canvas)
@@ -1976,7 +2001,10 @@ def mostrar_gastos_detalhados():
     canvas.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
 
-    frame_container.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    frame_container.bind(
+        "<Configure>",
+        lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+    )
 
     # Rolagem do mouse
     def _on_mousewheel(event):
@@ -1984,7 +2012,9 @@ def mostrar_gastos_detalhados():
 
     canvas.bind_all("<MouseWheel>", _on_mousewheel)
 
+    # Render inicial
     recarregar_gastos()
+
     aplicar_icone(nova_janela)
 
 def marcar_cartao_como_pago(nome_cartao):
@@ -2240,6 +2270,13 @@ def abrir_cartao_credito_detalhado():
 
 # ----------------------Funções adicionar-------------------------------
 def adicionar_despesa_fixa():
+    """Adiciona uma nova despesa fixa no mês atualmente selecionado e replica nos próximos meses."""
+    mes_atual = combo_mes.current() + 1
+    ano_atual = int(combo_ano.get())
+
+    # Garante que o mês já exista no dicionário
+    inicializar_mes(mes_atual, ano_atual)
+
     janela = tk.Toplevel(app)
     janela.title("Nova Despesa Fixa")
     largura, altura = 350, 350
@@ -2253,6 +2290,7 @@ def adicionar_despesa_fixa():
     main_frame = tk.Frame(janela, padx=20, pady=20)
     main_frame.pack(fill="both", expand=True)
 
+    # Campos de entrada
     ttk.Label(main_frame, text="Descrição:", font=("Inter", 11)).pack(pady=8)
     entrada_desc = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_desc.pack(pady=5)
@@ -2265,67 +2303,55 @@ def adicionar_despesa_fixa():
     entrada_venc = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_venc.pack(pady=5)
 
-    def mostrar_erro(mensagem):
-        erro_janela = tk.Toplevel(janela)
-        erro_janela.title("Erro")
-        erro_janela.resizable(False, False)
-        erro_janela.geometry("350x120")
-        erro_janela.attributes("-topmost", True)
-        erro_janela.grab_set()
-        aplicar_icone(erro_janela)
-        frame = tk.Frame(erro_janela, padx=15, pady=15, bg="#f8f9fa")
-        frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text=mensagem, foreground="#dc3545", wraplength=320,
-                  font=("Inter", 10), justify="center", background="#f8f9fa").pack(pady=10)
-        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
-        erro_janela.update_idletasks()
-        w = erro_janela.winfo_width()
-        h = erro_janela.winfo_height()
-        x = janela.winfo_rootx() + (janela.winfo_width() // 2) - (w // 2)
-        y = janela.winfo_rooty() + (janela.winfo_height() // 2) - (h // 2)
-        erro_janela.geometry(f"+{x}+{y}")
+    # Mensagem de erro
+    def mostrar_erro(msg):
+        messagebox.showerror("Erro", msg, parent=janela)
 
+    # Salvar a despesa
     def salvar():
         descricao = entrada_desc.get().strip()
+        if not descricao:
+            mostrar_erro("Descrição não pode ser vazia.")
+            return
+
         try:
             valor = float(entrada_valor.get().replace(",", "."))
         except:
             mostrar_erro("Valor inválido.")
-            entrada_valor.focus_set()
             return
+
         try:
             vencimento = int(entrada_venc.get())
             if not (1 <= vencimento <= 31):
                 raise ValueError
         except:
             mostrar_erro("Dia de vencimento inválido (1 a 31).")
-            entrada_venc.focus_set()
-            return
-        if not descricao:
-            mostrar_erro("Descrição não pode ser vazia.")
-            entrada_desc.focus_set()
             return
 
-        mes_selecionado = combo_mes.current() + 1
-        ano_selecionado = int(combo_ano.get())
-        nova = {
+        nova_despesa = {
             "descricao": descricao,
             "valor": valor,
             "vencimento": vencimento,
             "status": "Aberto",
-            "inicio": (ano_selecionado, mes_selecionado)
+            "inicio": (mes_atual, ano_atual)
         }
-        contas_fixas_modelo.append(nova)
-        ano, mes = ano_selecionado, mes_selecionado
-        while ano <= 2030:
-            chave = get_chave(mes, ano)
-            if chave in dados:
-                dados[chave]["despesas_fixas"].append(nova.copy())
-            mes += 1
-            if mes > 12:
-                mes = 1
-                ano += 1
 
+        # Adiciona no modelo global
+        contas_fixas_modelo.append(nova_despesa.copy())
+
+        # Adiciona no mês atual
+        dados[(mes_atual, ano_atual)]["despesas_fixas"].append(nova_despesa.copy())
+
+        # Replicar nos meses futuros
+        for chave in dados:
+            m, a = chave
+            if (a, m) > (ano_atual, mes_atual):
+                # Inicializa se necessário
+                inicializar_mes(m, a)
+                # Adiciona a despesa replicada
+                dados[chave]["despesas_fixas"].append(nova_despesa.copy())
+
+        salvar_dados()
         atualizar_resumo()
         janela.destroy()
 
@@ -2850,7 +2876,7 @@ def editar_gasto_cartao(gasto_original, callback_apos_salvar=None):
     main_frame.pack(fill="both", expand=True)
 
     fixo = gasto_original.get("fixo", False)
-    parcelas = 1 if fixo else gasto_original.get("total_parcelas", 1) or 1
+    parcelas = 24 if fixo else gasto_original.get("total_parcelas", 1) or 1
     valor_parcela = round(gasto_original["valor"], 2)
 
     ttk.Label(main_frame, text="Descrição:", font=("Inter", 11)).pack(pady=5)
@@ -2899,12 +2925,18 @@ def editar_gasto_cartao(gasto_original, callback_apos_salvar=None):
         dia, mes_inicial, ano_inicial = gasto_original["dia"], gasto_original["mes"], gasto_original["ano"]
         cartao = gasto_original["cartao"]
         desc_original = gasto_original["descricao"]
-        meses_alvo = 24 if fixo else parcelas
 
-        for i in range(meses_alvo):
+        hoje = datetime.today()
+        mes_atual, ano_atual = hoje.month, hoje.year
+
+        for i in range(parcelas):
             mes_fatura = mes_inicial + i
             ano_fatura = ano_inicial + (mes_fatura - 1) // 12
             mes_fatura = (mes_fatura - 1) % 12 + 1
+
+            if ano_fatura < ano_atual or (ano_fatura == ano_atual and mes_fatura < mes_atual):
+                continue
+
             chave_fatura = (mes_fatura, ano_fatura)
             if chave_fatura not in dados:
                 inicializar_mes(mes_fatura, ano_fatura)
@@ -2991,9 +3023,10 @@ def editar_receita(nome_receita):
 def editar_gasto_diario(idx, callback_apos_salvar=None):
     mes = combo_mes.current() + 1
     ano = int(combo_ano.get())
-    info = inicializar_mes(mes, ano)
+    chave = get_chave(mes, ano)
+    info = dados.get(chave)
 
-    if idx < 0 or idx >= len(info["gastos"]):
+    if not info or idx < 0 or idx >= len(info["gastos"]):
         show_error("Erro", "Índice de gasto inválido")
         return
 
@@ -3001,7 +3034,7 @@ def editar_gasto_diario(idx, callback_apos_salvar=None):
 
     janela = tk.Toplevel(app)
     janela.title("Editar Gasto Diário")
-    largura, altura = 420, 280
+    largura, altura = 420, 340
     x = (janela.winfo_screenwidth() // 2) - (largura // 2)
     y = (janela.winfo_screenheight() // 2) - (altura // 2)
     janela.geometry(f"{largura}x{altura}+{x}+{y}")
@@ -3011,15 +3044,24 @@ def editar_gasto_diario(idx, callback_apos_salvar=None):
     main_frame = tk.Frame(janela, padx=20, pady=20)
     main_frame.pack(fill="both", expand=True)
 
+    # Descrição
     ttk.Label(main_frame, text="Descrição:", font=("Inter", 11)).pack(padx=10, pady=(10, 0), anchor="w")
     entry_descricao = ttk.Entry(main_frame, font=("Inter", 10))
     entry_descricao.pack(padx=10, pady=8, fill="x")
     entry_descricao.insert(0, gasto["descricao"])
 
+    # Valor
     ttk.Label(main_frame, text="Valor:", font=("Inter", 11)).pack(padx=10, pady=(10, 0), anchor="w")
     entry_valor = ttk.Entry(main_frame, font=("Inter", 10))
     entry_valor.pack(padx=10, pady=8, fill="x")
     entry_valor.insert(0, str(gasto["valor"]))
+
+    # Tipo de gasto
+    ttk.Label(main_frame, text="Tipo:", font=("Inter", 11)).pack(padx=10, pady=(10, 0), anchor="w")
+    tipos_existentes = ["Alimentação", "Transporte", "Saúde", "Lazer", "Moradia", "Outros"]
+    entry_tipo = ttk.Combobox(main_frame, values=tipos_existentes, font=("Inter", 10))
+    entry_tipo.pack(padx=10, pady=8, fill="x")
+    entry_tipo.set(gasto.get("tipo", "Outros"))
 
     def mostrar_erro_toplevel(mensagem):
         erro_janela = tk.Toplevel(janela)
@@ -3048,9 +3090,11 @@ def editar_gasto_diario(idx, callback_apos_salvar=None):
         if not nova_desc:
             mostrar_erro_toplevel("Descrição não pode estar vazia.")
             return
+        novo_tipo = entry_tipo.get().strip() or "Outros"
 
         info["gastos"][idx]["descricao"] = nova_desc
         info["gastos"][idx]["valor"] = novo_valor
+        info["gastos"][idx]["tipo"] = novo_tipo
 
         salvar_dados()
         atualizar_resumo()
@@ -3062,9 +3106,7 @@ def editar_gasto_diario(idx, callback_apos_salvar=None):
     janela.bind("<Return>", salvar)
     entry_descricao.focus_set()
 # ----------------------Funções excluir---------------------------------
-
 def excluir_gasto_cartao(gasto, parent_janela=None, callback_apos_excluir=None):
-    # Janela de confirmação com ícone
     confirm_janela = tk.Toplevel(app)
     confirm_janela.title("Excluir Gasto")
     largura, altura = 350, 150
@@ -3078,7 +3120,8 @@ def excluir_gasto_cartao(gasto, parent_janela=None, callback_apos_excluir=None):
     frame = tk.Frame(confirm_janela, padx=20, pady=20)
     frame.pack(fill="both", expand=True)
 
-    ttk.Label(frame, text="Deseja excluir TODAS as parcelas deste gasto?", font=("Inter", 11), wraplength=320, justify="center").pack(pady=10)
+    ttk.Label(frame, text="Deseja excluir TODAS as parcelas deste gasto a partir deste mês?", 
+              font=("Inter", 11), wraplength=320, justify="center").pack(pady=10)
 
     def confirmar():
         fixo = gasto.get("fixo", False)
@@ -3091,21 +3134,18 @@ def excluir_gasto_cartao(gasto, parent_janela=None, callback_apos_excluir=None):
         cartao = gasto.get("cartao")
         descricao = gasto.get("descricao")
 
-        cartao_info = next((c for c in cartoes if c["nome"] == cartao), None)
-        fechamento = cartao_info.get("fechamento", 1) if cartao_info else 1
-
-        if dia > fechamento:
-            mes_inicial = mes_compra + 1
-            ano_inicial = ano_compra + (1 if mes_inicial > 12 else 0)
-            mes_inicial = 1 if mes_inicial > 12 else mes_inicial
-        else:
-            mes_inicial = mes_compra
-            ano_inicial = ano_compra
+        # Pega mês e ano selecionados na interface
+        mes_selecionado = combo_mes.current() + 1
+        ano_selecionado = int(combo_ano.get())
 
         for i in range(parcelas):
-            mes_fatura = mes_inicial + i
-            ano_fatura = ano_inicial + (mes_fatura - 1) // 12
+            mes_fatura = mes_compra + i
+            ano_fatura = ano_compra + (mes_fatura - 1) // 12
             mes_fatura = (mes_fatura - 1) % 12 + 1
+
+            # Exclui somente se a fatura estiver no mês/ano selecionado ou depois
+            if (ano_fatura < ano_selecionado) or (ano_fatura == ano_selecionado and mes_fatura < mes_selecionado):
+                continue
 
             chave_fatura = (mes_fatura, ano_fatura)
             if chave_fatura in dados:
@@ -3179,7 +3219,11 @@ def excluir_receita(nome_receita):
     mes = combo_mes.current() + 1
     ano = int(combo_ano.get())
     chave = get_chave(mes, ano)
-    info = inicializar_mes(mes, ano)
+    
+    if chave not in dados:
+        inicializar_mes(mes, ano)
+    
+    info = dados[chave]  # <- pega os dados do mês após inicializar
 
     if nome_receita not in info["receitas"]:
         return
@@ -3213,15 +3257,15 @@ def excluir_receita(nome_receita):
 def excluir_gasto_diario(idx, janela_detalhes=None, callback_apos_excluir=None):
     mes = combo_mes.current() + 1
     ano = int(combo_ano.get())
-    info = inicializar_mes(mes, ano)
+    chave = get_chave(mes, ano)
+    info = dados.get(chave)
 
-    if idx < 0 or idx >= len(info["gastos"]):
+    if not info or idx < 0 or idx >= len(info["gastos"]):
         show_error("Erro", "Índice de gasto inválido", parent=janela_detalhes)
         return
 
     gasto = info["gastos"][idx]
 
-    # Janela de confirmação personalizada
     confirm_janela = tk.Toplevel(app)
     confirm_janela.title("Excluir Gasto Diário")
     largura, altura = 380, 160
@@ -3250,7 +3294,6 @@ def excluir_gasto_diario(idx, janela_detalhes=None, callback_apos_excluir=None):
     botoes.pack()
     ttk.Button(botoes, text="✓ Sim", command=confirmar, bootstyle="danger").pack(side="left", padx=10)
     ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
-
 # -------------------------Interface------------------------------------
 frame_selecao = tk.Frame(app, pady=15, bg="#0d6efd")
 frame_selecao.pack(pady=15, fill="x")
