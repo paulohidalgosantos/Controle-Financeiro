@@ -1,4 +1,4 @@
-VERSAO_ATUAL = "1.0.10"
+VERSAO_ATUAL = "1.1.0"
 
 import os, sys, time, json, copy, math, subprocess, webbrowser, urllib.request, locale
 from datetime import datetime
