@@ -1,4 +1,4 @@
-VERSAO_ATUAL = "1.0.9"
+VERSAO_ATUAL = "1.0.10"
 
 import os, sys, time, json, copy, math, subprocess, webbrowser, urllib.request, locale
 from datetime import datetime
@@ -11,6 +11,7 @@ from PIL import Image, ImageTk
 import ttkbootstrap as tb
 from ttkbootstrap import Style
 from ttkbootstrap.constants import *
+
 
 def recurso_caminho(relativo):
     """Obtém caminho correto para recursos mesmo após empacotado com PyInstaller."""
@@ -102,10 +103,10 @@ def baixar_e_instalar_atualizacao():
             with open(novo_exe, 'wb') as f:
                 f.write(conteudo)
 
-        # Chama updater externo (não abre o app atualizado automaticamente)
+        # Chama updater externo usando o mesmo Python que está rodando
         updater_path = os.path.join(pasta, "updater.pyw")
         subprocess.Popen(
-            ["pythonw", updater_path, caminho_atual, novo_exe],
+            [sys.executable, updater_path, caminho_atual, novo_exe],
             creationflags=subprocess.CREATE_NO_WINDOW
         )
 
@@ -518,14 +519,14 @@ welcome_frame.pack(expand=True, fill="both")
 global label_bem_vindo
 label_bem_vindo = tk.Label(
     welcome_frame,
-    text=f"Bem-vindo, {usuario_atual}!",
+    text=f"Olá {usuario_atual}!",
     font=("Inter", 22, "bold"),
     anchor="center"
 )
 label_bem_vindo.pack(pady=15, expand=True)
 
 # 🔒 Força as cores manualmente (ignora tema ttkbootstrap)
-label_bem_vindo.configure(bg="#d9e3f1", fg="white")
+label_bem_vindo.configure(bg="#d9e3f1")
 
 
 # ---- Funções usadas no menu ----
@@ -545,7 +546,7 @@ def criar_menu():
     opcoes = [
         (" 👤     Trocar Usuário", trocar_usuario),
         (" 👥     Gerenciar Usuários", gerenciar_usuarios),
-        (" 💳     Gerenciar Cartões", gerenciar_cartoes),
+        (" 💳    Gerenciar Cartões", gerenciar_cartoes),
         (" 📂     Categorias de Gastos", abrir_gerenciador_categorias),
         (" 🔄     Buscar Atualização", buscar_atualizacao),
         (" 🗑️ Zerar Aplicativo", zerar_tudo),
@@ -1583,70 +1584,79 @@ def atualizar_resumo(*args):
 
         frame_header.grid_columnconfigure(0, minsize=35)
         return frame_topo
+    # ------------------ Atualizar Receitas ------------------
+    # Limpa os itens antigos dentro do scroll_frame
+    for widget in scroll_frame_receitas.winfo_children():
+        widget.destroy()
 
-    # --- RECEITAS ---
-    total_receitas = sum(receitas_dict.values())
-    frame_receitas_topo = criar_cabecalho_com_detalhes(
+    # Botão adicionar receita
+    btn_adicionar = tk.Label(
         scroll_frame_receitas,
-        "Receitas",
-        total_receitas,
-        lambda: adicionar_valor("Adicionar Receita", "receita"),
-        lambda: None
+        text="➕",
+        font=("Inter", 16, "bold"),
+        fg="#28a745",
+        bg="#e6ffea",
+        cursor="hand2"
     )
+    btn_adicionar.pack(anchor="w", pady=(0, 10))
+    btn_adicionar.bind("<Button-1>", lambda e: adicionar_valor("Adicionar Receita", "receita"))
 
-    frame_receitas_conteudo = tk.Frame(frame_receitas_topo, bg="#d9e3f1", padx=18, pady=15)
-    frame_receitas_conteudo.pack(fill="x")
-
-    for nome, valor in list(receitas_dict.items()):
-        frame_linha = tk.Frame(frame_receitas_conteudo, bg="#d9e3f1")
-        frame_linha.pack(anchor="w", fill="x", pady=5)
+    # Adiciona as receitas existentes
+    for nome, valor in receitas_dict.items():
+        frame_linha = tk.Frame(scroll_frame_receitas, bg="#e6ffea")
+        frame_linha.pack(fill="x", pady=3)
 
         label_receita = tk.Label(
             frame_linha,
             text=f"{nome}: {locale.currency(valor, grouping=True)}",
             font=("Inter", 12, "bold"),
-            bg="#d9e3f1"
+            bg="#e6ffea"
         )
-        label_receita.configure(fg="#28a745")
+
+        # ---------------- Regras de cor originais ----------------
+        # Substitua abaixo pela sua lógica exata, se tiver mais critérios
+        if valor >= 1000:        # exemplo simples de cor
+            cor = "#dc3545"
+        else:
+            cor = "#28a745"
+        label_receita.configure(fg=cor)
         label_receita.pack(side="left", anchor="w")
 
-        btn_editar = tk.Label(
-            frame_linha,
-            text="✏️",
-            font=("Inter", 14, "bold"),
-            fg="white",
-            bg="#d9e3f1",
-            cursor="hand2"
-        )
-        btn_editar.pack(side="right", anchor="e", padx=8)
+        # Botão editar
+        btn_editar = tk.Label(frame_linha, text="✏️", font=("Inter", 14, "bold"),
+                              fg="white", bg="#e6ffea", cursor="hand2")
+        btn_editar.pack(side="right", padx=5)
         btn_editar.bind("<Button-1>", lambda e, n=nome: editar_receita(n))
 
-        btn_excluir = tk.Label(
-            frame_linha,
-            text="🗑️",
-            font=("Inter", 14, "bold"),
-            fg="#dc3545",
-            bg="#d9e3f1",
-            cursor="hand2"
-        )
-        btn_excluir.pack(side="right", anchor="e", padx=5)
+        # Botão excluir
+        btn_excluir = tk.Label(frame_linha, text="🗑️", font=("Inter", 14, "bold"),
+                               fg="#dc3545", bg="#e6ffea", cursor="hand2")
+        btn_excluir.pack(side="right", padx=5)
         btn_excluir.bind("<Button-1>", lambda e, n=nome: excluir_receita(n))
-    # --- DESPESAS FIXAS ---
-    total_despesas_fixas = sum(d["valor"] for d in despesas_fixas)
-    frame_despesas_topo = criar_cabecalho_com_detalhes(
+
+    # Atualiza o total do card
+    lbl_receitas.config(text=f"R$ {locale.currency(total_receitas, grouping=True).replace('R$', '').strip()}")
+
+    # ------------------ Atualizar Despesas Fixas ------------------
+    # Limpa os itens antigos dentro do scroll_frame
+    for widget in scroll_frame_despesas.winfo_children():
+        widget.destroy()
+
+    # Botão adicionar despesa fixa
+    btn_adicionar = tk.Label(
         scroll_frame_despesas,
-        "Despesas Fixas",
-        total_despesas_fixas,
-        adicionar_despesa_fixa,
-        lambda: None
+        text="➕",
+        font=("Inter", 16, "bold"),
+        fg="#28a745",
+        bg="#ffe6e6",
+        cursor="hand2"
     )
+    btn_adicionar.pack(anchor="w", pady=(0, 10))
+    btn_adicionar.bind("<Button-1>", lambda e: adicionar_despesa_fixa())
 
-    frame_despesa_conteudo = tk.Frame(frame_despesas_topo, bg="#d9e3f1", padx=18, pady=15)
-    frame_despesa_conteudo.pack(fill="x")
-
-    # Guardar índice original antes de ordenar
+    # Ordena despesas pelo vencimento
     despesas_ordenadas = sorted(
-        enumerate(despesas_fixas),  # cada item vira (indice_original, despesa)
+        enumerate(despesas_fixas),
         key=lambda x: x[1].get("vencimento", 99)
     )
 
@@ -1654,10 +1664,12 @@ def atualizar_resumo(*args):
     hoje = datetime.today()
     ultimo_dia_mes = monthrange(ano, mes)[1]
 
+    # Adiciona cada despesa fixa
     for original_idx, d in despesas_ordenadas:
         vencimento = d.get("vencimento", "??")
         status = d.get("status", "Aberto")
 
+        # ---------------- Regras de cor ----------------
         if status == "Pago":
             cor = "#28a745"
         elif status == "Aberto":
@@ -1671,30 +1683,60 @@ def atualizar_resumo(*args):
 
         texto = f"{d.get('descricao', '')} - {locale.currency(d['valor'], grouping=True)} - Venc: {vencimento} ({status})"
 
-        container = tk.Frame(frame_despesa_conteudo, bg="#d9e3f1")
+        container = tk.Frame(scroll_frame_despesas, bg="#ffe6e6")
         container.pack(fill="x", pady=3)
 
-        btn_editar = tk.Label(container, text="✏️", font=("Inter", 14, "bold"), fg="white", bg="#d9e3f1", cursor="hand2")
+        # Botão editar
+        btn_editar = tk.Label(container, text="✏️", font=("Inter", 14, "bold"),
+                              fg="white", bg="#ffe6e6", cursor="hand2")
         btn_editar.pack(side="left", padx=(0, 10))
         btn_editar.bind("<Button-1>", lambda e, i=original_idx: editar_despesa_fixa(i))
 
-        btn_excluir = tk.Label(container, text="🗑️", font=("Inter", 14, "bold"), fg="#dc3545", bg="#d9e3f1", cursor="hand2")
+        # Botão excluir
+        btn_excluir = tk.Label(container, text="🗑️", font=("Inter", 14, "bold"),
+                               fg="#dc3545", bg="#ffe6e6", cursor="hand2")
         btn_excluir.pack(side="left", padx=(0, 10))
         btn_excluir.bind("<Button-1>", lambda e, i=original_idx: excluir_despesa_fixa(i))
 
-        label_despesa = tk.Label(container, text=texto, font=("Inter", 12, "bold"), bg="#d9e3f1")
+        # Label da despesa com cor dinâmica
+        label_despesa = tk.Label(container, text=texto, font=("Inter", 12, "bold"), bg="#ffe6e6")
         label_despesa.configure(fg=cor)
         label_despesa.pack(side="left", anchor="w")
 
+    # Atualiza o total do card
+    lbl_despesas.config(text=f"R$ {locale.currency(total_despesas_fixas, grouping=True).replace('R$', '').strip()}")
     # --- GASTOS DIÁRIOS ---
     total_gastos = sum(g["valor"] for g in gastos_diarios)
-    criar_cabecalho_com_detalhes(
-        scroll_frame_gastos,
-        "Gastos Diários",
-        total_gastos,
-        lambda: adicionar_valor("Adicionar Gasto", "gasto"),
-        mostrar_gastos_detalhados
+    for widget in scroll_frame_gastos.winfo_children():
+        widget.destroy()
+
+    # Frame clicável com lupa para abrir detalhes da seção
+    frame_gastos_clicavel = tk.Frame(scroll_frame_gastos, bg="#e6f0ff", cursor="hand2")
+    frame_gastos_clicavel.pack(fill="x", pady=(0, 5))
+    frame_gastos_clicavel.bind("<Button-1>", lambda e: mostrar_gastos_detalhados())
+
+    # Ícone lupa
+    lbl_lupa = tk.Label(
+        frame_gastos_clicavel,
+        text="🔍",
+        font=("Inter", 16, "bold"),
+        bg="#e6f0ff",
+        cursor="hand2"
     )
+    lbl_lupa.pack(side="left", padx=5, pady=5)
+    lbl_lupa.bind("<Button-1>", lambda e: mostrar_gastos_detalhados())
+
+    # Botão adicionar
+    btn_adicionar = tk.Label(
+        frame_gastos_clicavel,
+        text="➕",
+        font=("Inter", 16, "bold"),
+        fg="#28a745",
+        bg="#e6f0ff",
+        cursor="hand2"
+    )
+    btn_adicionar.pack(side="left", padx=5, pady=5)
+    btn_adicionar.bind("<Button-1>", lambda e: adicionar_valor("Adicionar Gasto", "gasto"))
 
     # --- CARTÃO DE CRÉDITO ---
     gastos_por_cartao = {}
@@ -1713,13 +1755,37 @@ def atualizar_resumo(*args):
         if cartao_pago(lista_gastos_cartao):
             total_cartao_pago += total_gastos_cartao
 
-    criar_cabecalho_com_detalhes(
-        scroll_frame_credito,
-        "Cartão de Crédito",
-        total_cartao_todos,
-        adicionar_cartao_credito,
-        abrir_cartao_credito_detalhado
+    for widget in scroll_frame_credito.winfo_children():
+        widget.destroy()
+
+    # Frame clicável com lupa para abrir detalhes do cartão
+    frame_credito_clicavel = tk.Frame(scroll_frame_credito, bg="#f2e6ff", cursor="hand2")
+    frame_credito_clicavel.pack(fill="x", pady=(0, 5))
+    frame_credito_clicavel.bind("<Button-1>", lambda e: abrir_cartao_credito_detalhado())
+
+    # Ícone lupa
+    lbl_lupa_credito = tk.Label(
+        frame_credito_clicavel,
+        text="🔍",
+        font=("Inter", 16, "bold"),
+        bg="#f2e6ff",
+        cursor="hand2"
     )
+    lbl_lupa_credito.pack(side="left", padx=5, pady=5)
+    lbl_lupa_credito.bind("<Button-1>", lambda e: abrir_cartao_credito_detalhado())
+
+    # Botão adicionar
+    btn_adicionar = tk.Label(
+        frame_credito_clicavel,
+        text="➕",
+        font=("Inter", 16, "bold"),
+        fg="#28a745",
+        bg="#f2e6ff",
+        cursor="hand2"
+    )
+    btn_adicionar.pack(side="left", padx=5, pady=5)
+    btn_adicionar.bind("<Button-1>", lambda e: adicionar_cartao_credito())
+
 
     # --- RESUMO ---
     saldo_inicial = info.get("conta", 0)
@@ -1767,11 +1833,16 @@ def atualizar_resumo(*args):
     )
     label_gastos_tipo.pack(anchor="w", pady=(15, 5))
 
+    # Frame com altura fixa para limitar o espaço
+    frame_gastos_tipo = tk.Frame(resumo_container, bg="#d9e3f1", height=60)  # altura fixa
+    frame_gastos_tipo.pack(fill="x", anchor="w")
+    frame_gastos_tipo.pack_propagate(False)  # impede que o frame aumente automaticamente
+
     tipos = sorted(gastos_por_tipo.items(), key=lambda x: x[0])
     max_por_linha = (len(tipos) + 1) // 2  # até 2 linhas
 
     for linha in range(2):
-        frame_linha = tk.Frame(resumo_container, bg="#d9e3f1")
+        frame_linha = tk.Frame(frame_gastos_tipo, bg="#d9e3f1")
         frame_linha.pack(anchor="w", pady=2)
         for idx in range(linha * max_por_linha, min((linha + 1) * max_por_linha, len(tipos))):
             tipo, valor = tipos[idx]
@@ -1785,6 +1856,12 @@ def atualizar_resumo(*args):
                 padx=10
             )
             lbl.pack(side="left", anchor="w")
+
+    # Atualiza os totais nos cards
+    lbl_receitas.config(text=f"R$ {locale.currency(total_receitas, grouping=True).replace('R$', '').strip()}")
+    lbl_despesas.config(text=f"R$ {locale.currency(total_despesas_fixas, grouping=True).replace('R$', '').strip()}")
+    lbl_gastos.config(text=f"R$ {locale.currency(total_gastos_diarios, grouping=True).replace('R$', '').strip()}")
+    lbl_credito.config(text=f"R$ {locale.currency(total_cartao, grouping=True).replace('R$', '').strip()}")
 
 def excluir_despesa_fixa(idx):
     mes = combo_mes.current() + 1
@@ -1871,32 +1948,27 @@ def excluir_despesa_fixa(idx):
     )
 
     # --- RESUMO ---
-    saldo_inicial = info.get("conta", 0)
-    total_pagas = sum(d["valor"] for d in despesas_fixas if d.get("status") == "Pago")
-    total_todas = sum(d["valor"] for d in despesas_fixas)
+    resumo_container = tk.Frame(frame_resumo, bg="#d9e3f1", padx=12, pady=8)
+    resumo_container.pack(fill="x", pady=(0, 5))
 
-    saldo_atual = saldo_inicial + total_receitas - total_gastos - total_cartao_pago - total_pagas
-    saldo_final = saldo_inicial + total_receitas - total_gastos - total_cartao_todos - total_todas
+    label_saldo_atual = tk.Label(
+        resumo_container,
+        text=f"💰 Saldo Atual: {locale.currency(saldo_atual, grouping=True)}",
+        font=("Inter", 12, "bold"),
+        bg="#d9e3f1",
+        fg=cor_saldo_atual
+    )
+    label_saldo_atual.pack(anchor="w", pady=(0, 2))
 
-    cor_saldo_atual = "#0d6efd" if saldo_atual >= 0 else "#dc3545"
-    cor_saldo_final = "#0d6efd" if saldo_final >= 0 else "#dc3545"
+    label_saldo_final = tk.Label(
+        resumo_container,
+        text=f"📊 Saldo Final: {locale.currency(saldo_final, grouping=True)}",
+        font=("Inter", 12, "bold"),
+        bg="#d9e3f1",
+        fg=cor_saldo_final
+    )
+    label_saldo_final.pack(anchor="w", pady=(0, 2))
 
-    resumo_container = tk.Frame(frame_resumo, bg="#d9e3f1", padx=15, pady=15)
-    resumo_container.pack(fill="x", pady=5)
-
-    label_saldo_atual = tk.Label(resumo_container,
-                                 text=f"💰 Saldo Atual: {locale.currency(saldo_atual, grouping=True)}",
-                                 font=("Inter", 12, "bold"),
-                                 bg="#d9e3f1")
-    label_saldo_atual.configure(fg=cor_saldo_atual)
-    label_saldo_atual.pack(anchor="w")
-
-    label_saldo_final = tk.Label(resumo_container,
-                                 text=f"📊 Saldo Final: {locale.currency(saldo_final, grouping=True)}",
-                                 font=("Inter", 12, "bold"),
-                                 bg="#d9e3f1")
-    label_saldo_final.configure(fg=cor_saldo_final)
-    label_saldo_final.pack(anchor="w", pady=(5, 0))
     # --- Gastos finais (diários + cartão) por tipo ---
     gastos_por_tipo = {}
     for g in gastos_diarios:
@@ -3503,15 +3575,14 @@ def excluir_gasto_diario(idx, janela_detalhes=None, callback_apos_excluir=None):
     ttk.Button(botoes, text="✓ Sim", command=confirmar, bootstyle="danger").pack(side="left", padx=10)
     ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
 
-
 # -------------------------Interface Responsiva------------------------------------
-frame_selecao = tk.Frame(app, pady=10, bg="#0d6efd")
-frame_selecao.pack(pady=10, fill="x")
+frame_selecao = tk.Frame(app, pady=2, bg="#0d6efd")
+frame_selecao.pack(pady=(2, 2), fill="x")
 
 combo_container = tk.Frame(frame_selecao, bg="#0d6efd")
 combo_container.pack()
 
-ttk.Label(combo_container, text="📅 Período:", font=("Inter", 12, "bold")).pack(side="left", padx=(0, 10))
+ttk.Label(combo_container, text="📅 Período:", font=("Inter", 13, "bold")).pack(side="left", padx=(0, 10))
 
 meses = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -3540,23 +3611,15 @@ combo_ano.pack(side="left", padx=8)
 combo_mes.bind("<<ComboboxSelected>>", lambda e: atualizar_resumo())
 combo_ano.bind("<<ComboboxSelected>>", lambda e: atualizar_resumo())
 
-frame_resumo = tk.LabelFrame(app, text="📊 Resumo Geral", padx=12, pady=12, bg="#d9e3f1", fg="#0d6efd", font=("Inter", 12, "bold"))
-frame_resumo.pack(fill="x", padx=15, pady=10)
+frame_resumo = tk.LabelFrame(
+    app, text="📊 Resumo Geral",
+    padx=12, pady=12, bg="#d9e3f1", fg="#0d6efd",
+    font=("Inter", 13, "bold")  # fonte aumentada
+)
+frame_resumo.pack(fill="x", padx=10, pady=(2, 5))
 
 frame_main = tk.Frame(app, bg="#0d6efd")
 frame_main.pack(fill="both", expand=True, padx=15, pady=8)
-
-# Função para criar card com borda e fundo
-def criar_card(frame_pai, titulo, bg="#ffffff"):
-    card = tk.Frame(frame_pai, bg=bg, bd=1, relief="solid", padx=10, pady=10)
-    tk.Label(card, text=titulo, font=("Inter", 12, "bold"), bg=bg).pack(anchor="w")
-    return card  # NÃO usar pack dentro
-
-# Criar cards
-frame_receitas = criar_card(frame_main, "💰 Receitas", bg="#e6ffea")
-frame_despesas = criar_card(frame_main, "🏠 Despesas Fixas", bg="#ffe6e6")
-frame_gastos = criar_card(frame_main, "🛒 Gastos Diários", bg="#e6f0ff")
-frame_credito = criar_card(frame_main, "💳 Cartão de Crédito", bg="#f2e6ff")
 
 # Grid para layout flexível e responsivo
 frame_main.rowconfigure(0, weight=1)
@@ -3564,43 +3627,86 @@ frame_main.rowconfigure(1, weight=1)
 frame_main.columnconfigure(0, weight=1)
 frame_main.columnconfigure(1, weight=1)
 
-frame_receitas.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
-frame_despesas.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
-frame_gastos.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
-frame_credito.grid(row=1, column=1, sticky="nsew", padx=5, pady=5)
 
 # -------------------------
-# Scroll Areas Responsivas
+# Função para criar cards
 # -------------------------
-def criar_area_com_scroll(frame_pai, exibir_scroll=True):
-    canvas = tk.Canvas(frame_pai, highlightthickness=0, bg=frame_pai["bg"], relief="flat")
-    scroll_frame = tk.Frame(canvas, bg=frame_pai["bg"])
+def criar_card(container, titulo, bg, expandable=True, pady=5):
+    # Frame externo: simula sombra
+    sombra = tk.Frame(container, bg="#b0b0b0")
+    sombra.pack(side="left", expand=True, fill="both", padx=5, pady=pady)
 
-    # Cria janela dentro do canvas
-    canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+    # Frame interno: o card real
+    frame = tk.Frame(sombra, bg=bg, bd=1, relief="ridge")
+    frame.pack(expand=True, fill="both", padx=(0,2), pady=(0,2))
 
-    if exibir_scroll:
-        scrollbar = ttk.Scrollbar(frame_pai, orient="vertical", command=canvas.yview)
+    # Cabeçalho
+    header = tk.Frame(frame, bg=bg)
+    header.pack(fill="x", padx=10, pady=8)
+
+    lbl_titulo = ttk.Label(header, text=titulo, font=("Segoe UI", 11, "bold"), background=bg)  # fonte aumentada
+    lbl_titulo.pack(side="left")
+    lbl_total = ttk.Label(header, text="R$ 0,00", font=("Segoe UI", 10), background=bg)
+    lbl_total.pack(side="right")
+
+    # Área expansível
+    if expandable:
+        canvas = tk.Canvas(frame, bg=bg, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        scroll_frame = tk.Frame(canvas, bg=bg)
+
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0,0), window=scroll_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+        return frame, lbl_total, scroll_frame
     else:
-        scrollbar = None
+        return frame, lbl_total, None
 
-    canvas.pack(side="left", fill="both", expand=True)
+# -------------------------
+# Containers para organizar linhas
+# -------------------------
+container_cards_topo = tk.Frame(frame_main, bg="#0d6efd")
+container_cards_topo.pack(fill="both", expand=True, pady=5)
 
-    def _on_mousewheel(event):
-        canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+container_cards_base = tk.Frame(frame_main, bg="#0d6efd")
+container_cards_base.pack(fill="both", expand=False, pady=5)
 
-    scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-    scroll_frame.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
-    scroll_frame.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+# -------------------------
+# Topo: Receitas e Despesas Fixas (maiores)
+# -------------------------
+frame_receitas, lbl_receitas, lista_receitas = criar_card(
+    container_cards_topo, "💰 Receitas", bg="#e6ffea", expandable=True
+)
+frame_receitas.pack(side="left", expand=True, fill="both", padx=5)
 
-    return canvas, scrollbar, scroll_frame
+frame_despesas, lbl_despesas, lista_despesas = criar_card(
+    container_cards_topo, "🏠 Despesas Fixas", bg="#ffe6e6", expandable=True
+)
+frame_despesas.pack(side="left", expand=True, fill="both", padx=5)
 
-canvas_receitas, scrollbar_receitas, scroll_frame_receitas = criar_area_com_scroll(frame_receitas)
-canvas_despesas, scrollbar_despesas, scroll_frame_despesas = criar_area_com_scroll(frame_despesas)
-canvas_gastos, scrollbar_gastos, scroll_frame_gastos = criar_area_com_scroll(frame_gastos, exibir_scroll=False)
-canvas_credito, scrollbar_credito, scroll_frame_credito = criar_area_com_scroll(frame_credito, exibir_scroll=False)
+# -------------------------
+# Base: Gastos Diários e Cartão de Crédito (menores)
+# -------------------------
+frame_gastos, lbl_gastos, _ = criar_card(
+    container_cards_base, "🛒 Gastos Diários", bg="#e6f0ff", expandable=False
+)
+lista_gastos = tk.Frame(frame_gastos, bg="#e6f0ff", height=100)
+lista_gastos.pack(fill="both", expand=True)
+
+frame_credito, lbl_credito, _ = criar_card(
+    container_cards_base, "💳 Cartão de Crédito", bg="#f2e6ff", expandable=False
+)
+lista_credito = tk.Frame(frame_credito, bg="#f2e6ff", height=100)
+lista_credito.pack(fill="both", expand=True)
+
+# ---- Compatibilidade com atualizar_resumo ----
+scroll_frame_receitas = lista_receitas
+scroll_frame_despesas = lista_despesas
+scroll_frame_gastos = lista_gastos
+scroll_frame_credito = lista_credito
 
 # Inicializa dados para o mês atual
 atualizar_resumo()
