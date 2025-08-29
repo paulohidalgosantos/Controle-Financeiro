@@ -20,6 +20,7 @@ def recurso_caminho(relativo):
     return os.path.join(os.path.abspath("."), relativo)
 
 # Função para buscar atualização e baixar se disponível
+
 def buscar_atualizacao():
     url_versao = "https://raw.githubusercontent.com/paulohidalgosantos/Controle-Financeiro/main/versao.txt"
     try:
@@ -27,51 +28,12 @@ def buscar_atualizacao():
             versao_remota = response.read().decode().strip()
 
         if versao_remota > VERSAO_ATUAL:
-            # Janela de confirmação para atualizar
-            confirm_janela = tk.Toplevel(app)
-            confirm_janela.title("Atualização disponível")
-            confirm_janela.resizable(False, False)
-            largura, altura = 360, 150
-            x = (app.winfo_screenwidth() // 2) - (largura // 2)
-            y = (app.winfo_screenheight() // 2) - (altura // 2)
-            confirm_janela.geometry(f"{largura}x{altura}+{x}+{y}")
-            confirm_janela.grab_set()
-            confirm_janela.attributes("-topmost", True)
-            confirm_janela.configure(bg="#f8f9fa")
-            aplicar_icone(confirm_janela)
-
-            frame = tk.Frame(confirm_janela, bg="#f8f9fa", padx=20, pady=20)
-            frame.pack(fill="both", expand=True)
-
-            ttk.Label(frame, text=f"Nova versão {versao_remota} disponível.\nDeseja atualizar agora?",
-                      font=("Inter", 11), justify="center", wraplength=320).pack(pady=15)
-
-            botoes = tk.Frame(frame, bg="#f8f9fa")
-            botoes.pack()
-
-            ttk.Button(
-                botoes,
-                text="✓ Sim",
-                command=lambda: [baixar_e_instalar_atualizacao(), confirm_janela.destroy()],
-                bootstyle="success"
-            ).pack(side="left", padx=10)
-
-            ttk.Button(
-                botoes,
-                text="✗ Não",
-                command=confirm_janela.destroy,
-                bootstyle="secondary"
-            ).pack(side="right", padx=10)
-
+            if messagebox.askyesno("Atualização disponível",
+                                   f"Nova versão {versao_remota} disponível.\nDeseja atualizar agora?"):
+                baixar_e_instalar_atualizacao()
         else:
-            tk.messagebox.showinfo(
-                "Atualização",
-                "Você já está usando a versão mais recente.",
-                parent=app
-            )
-
+            messagebox.showinfo("Atualização", "Você já está na versão mais recente.")
     except Exception as e:
-        # Apenas loga o erro, sem mostrar janela
         print(f"[ERRO] Falha ao verificar atualização: {e}")
 
 def baixar_e_instalar_atualizacao():
@@ -80,42 +42,37 @@ def baixar_e_instalar_atualizacao():
         with urllib.request.urlopen(url_api, timeout=10) as response:
             release = json.loads(response.read().decode())
 
+        # Pega o .exe mais recente
         exe_url = next(
             (asset["browser_download_url"] for asset in release["assets"] if asset["name"].endswith(".exe")),
             None
         )
         if not exe_url:
-            raise Exception("Nenhum executável .exe encontrado na última release.")
+            raise Exception("Nenhum .exe encontrado na última release.")
 
         caminho_atual = os.path.abspath(sys.argv[0])
         pasta = os.path.dirname(caminho_atual)
 
-        temp_dir = os.path.join(pasta, "_temp_update")
-        os.makedirs(temp_dir, exist_ok=True)
+        # Onde salvar temporariamente
+        novo_exe = os.path.join(pasta, "novo_app.exe")
 
-        novo_exe = os.path.join(temp_dir, "novo_controle_financeiro.exe")
-
-        # Baixa o executável
+        # Baixa o arquivo
         with urllib.request.urlopen(exe_url, timeout=30) as response:
             conteudo = response.read()
-            if len(conteudo) < 5_000_000:
-                raise Exception("Arquivo baixado parece incompleto ou corrompido.")
-            with open(novo_exe, 'wb') as f:
+            with open(novo_exe, "wb") as f:
                 f.write(conteudo)
 
-        # Chama updater externo usando o mesmo Python que está rodando
+        # Chama o updater externo (com o mesmo python embutido do app atual)
         updater_path = os.path.join(pasta, "updater.pyw")
         subprocess.Popen(
             [sys.executable, updater_path, caminho_atual, novo_exe],
             creationflags=subprocess.CREATE_NO_WINDOW
         )
 
-        # Fecha o app principal para permitir a atualização
-        salvar_dados()  # salva dados antes de fechar
-        app.destroy()
+        # Fecha o app atual
+        sys.exit(0)
 
     except Exception as e:
-        # Apenas log no console, sem janela de erro
         print(f"[ERRO] Falha ao atualizar: {e}")
 
 def verificar_dependencias():
