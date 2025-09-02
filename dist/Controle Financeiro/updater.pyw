@@ -1,106 +1,80 @@
 import os
 import sys
-import time
-import threading
 import shutil
+import urllib.request
+import zipfile
+import tempfile
+import subprocess
 import tkinter as tk
-from tkinter import ttk, messagebox
-import requests
+from tkinter import messagebox
+
+# ---------------- CONFIGURAÇÕES ----------------
+# link do zip contendo apenas o novo exe
+URL_ATUALIZACAO = "https://seu-servidor.com/ControleFinanceiro.zip"
+VERSAO_ATUAL = "1.1.1"  # será lido do app principal e passado como argumento
 
 
-def atualizar_app():
+def main():
+    if len(sys.argv) < 3:
+        messagebox.showerror("Erro", "Updater chamado de forma incorreta.")
+        return
+
+    # caminho completo do exe atual (renomeado ou não)
+    exe_atual = sys.argv[1]
+    versao_local = sys.argv[2]
+
+    pasta_app = os.path.dirname(exe_atual)
+    nome_exe = os.path.basename(exe_atual)
+
+    # Cria pasta temporária
+    pasta_temp = tempfile.mkdtemp(prefix="CF_Update_")
+
     try:
-        GITHUB_LATEST_RELEASE = "https://api.github.com/repos/paulohidalgosantos/Controle-Financeiro/releases/latest"
-        status_label.config(text="Verificando versão...")
-        app.update_idletasks()
+        # Baixa atualização
+        zip_path = os.path.join(pasta_temp, "update.zip")
+        urllib.request.urlretrieve(URL_ATUALIZACAO, zip_path)
 
-        # Obter info da última release
-        r = requests.get(GITHUB_LATEST_RELEASE)
-        r.raise_for_status()
-        release_info = r.json()
-        assets = release_info.get("assets", [])
-        if not assets:
-            raise Exception("Nenhum asset encontrado na release.")
+        # Extrai
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(pasta_temp)
 
-        # Procurar arquivo do app (exe)
-        exe_asset = None
-        for a in assets:
-            if a["name"].endswith(".exe"):
-                exe_asset = a
-                break
-        if not exe_asset:
-            raise Exception("Arquivo .exe da release não encontrado.")
+        # Procura novo exe dentro do zip
+        novo_exe = None
+        for root, _, files in os.walk(pasta_temp):
+            for f in files:
+                if f.endswith(".exe"):
+                    novo_exe = os.path.join(root, f)
+                    break
 
-        download_url = exe_asset["browser_download_url"]
-        temp_dir = os.path.join(os.path.dirname(sys.executable), "temp_update")
-        os.makedirs(temp_dir, exist_ok=True)
-        temp_file = os.path.join(temp_dir, exe_asset["name"])
+        if not novo_exe:
+            messagebox.showerror(
+                "Erro", "Nenhum executável encontrado na atualização.")
+            return
 
-        # Download com barra de progresso
-        status_label.config(text="Baixando atualização...")
-        app.update_idletasks()
-        with requests.get(download_url, stream=True) as r:
-            r.raise_for_status()
-            total_size = int(r.headers.get('content-length', 0))
-            downloaded = 0
-            chunk_size = 8192
-            with open(temp_file, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        perc = int(downloaded / total_size * 100)
-                        progress_bar['value'] = perc
-                        app.update_idletasks()
+        destino = os.path.join(pasta_app, nome_exe)
 
-        time.sleep(0.2)
-        status_label.config(text="Substituindo app antigo...")
-        app.update_idletasks()
-        time.sleep(0.3)
+        # Substitui exe antigo
+        shutil.copy2(novo_exe, destino)
 
-        # Substituir app antigo automaticamente, mesmo se o usuário renomeou o exe
-        exe_atual = sys.executable
-        backup_path = exe_atual + ".backup"
-        if os.path.exists(exe_atual):
-            if os.path.exists(backup_path):
-                os.remove(backup_path)
-            shutil.move(exe_atual, backup_path)
-        shutil.move(temp_file, exe_atual)
+        # Mensagem de sucesso
+        messagebox.showinfo(
+            "Atualização", "Aplicativo atualizado com sucesso!")
 
-        # Limpar pasta temporária
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-        status_label.config(text="Atualização concluída!")
-        progress_bar['value'] = 100
-        app.update_idletasks()
-        time.sleep(0.5)
-
-        # Abrir app atualizado
-        os.startfile(exe_atual)
-        app.destroy()
+        # Relança app atualizado
+        subprocess.Popen([destino], cwd=pasta_app)
 
     except Exception as e:
         messagebox.showerror("Erro na atualização", str(e))
-        app.destroy()
+
+    finally:
+        # Limpa pasta temporária
+        try:
+            shutil.rmtree(pasta_temp, ignore_errors=True)
+        except:
+            pass
 
 
-# Criar janela de atualização
-app = tk.Tk()
-app.title("Atualizando Controle Financeiro")
-app.geometry("400x120")
-app.resizable(False, False)
-
-lbl = tk.Label(app, text="Atualizando o aplicativo...", font=("Inter", 12))
-lbl.pack(pady=(10, 5))
-
-progress_bar = ttk.Progressbar(
-    app, orient="horizontal", length=350, mode="determinate")
-progress_bar.pack(pady=5)
-
-status_label = tk.Label(app, text="Iniciando...", font=("Inter", 10))
-status_label.pack(pady=(5, 10))
-
-# Rodar atualização em thread separada para não travar a UI
-threading.Thread(target=atualizar_app, daemon=True).start()
-
-app.mainloop()
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.withdraw()
+    main()

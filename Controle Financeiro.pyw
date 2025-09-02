@@ -22,36 +22,13 @@ import locale
 VERSAO_ATUAL = "1.1.2"
 
 def buscar_atualizacao():
-    """Verifica se há atualização e chama o updater externo."""
-    GITHUB_LATEST_RELEASE = "https://api.github.com/repos/paulohidalgosantos/Controle-Financeiro/releases/latest"
-
-    def _task():
-        try:
-            r = requests.get(GITHUB_LATEST_RELEASE, timeout=10)
-            r.raise_for_status()
-            data = r.json()
-            latest_version = data["tag_name"]
-
-            if latest_version != VERSAO_ATUAL:
-                # Executa o updater externo
-                exe_updater = os.path.join(os.path.dirname(sys.executable), "updater.pyw")
-                if os.path.exists(exe_updater):
-                    try:
-                        subprocess.Popen([sys.executable, exe_updater])
-                        sys.exit()
-                    except Exception as e:
-                        messagebox.showerror("Erro", f"Não foi possível iniciar o updater:\n{e}")
-                else:
-                    messagebox.showerror("Erro", "Updater não encontrado.")
-            else:
-                messagebox.showinfo(
-                    "Atualização",
-                    f"Você já possui a versão {VERSAO_ATUAL}."
-                )
-        except Exception as e:
-            messagebox.showerror("Erro", f"Falha ao verificar atualização:\n{e}")
-
-    threading.Thread(target=_task, daemon=True).start()
+    try:
+        url_updater = resource_path("updater.pyw")
+        exe_atual = sys.executable  # pega o caminho do exe em execução
+        subprocess.Popen([sys.executable, url_updater, exe_atual, VERSAO_ATUAL])
+        sys.exit()
+    except Exception as e:
+        messagebox.showerror("Erro", f"Falha ao iniciar atualização: {e}")
 
 def baixar_e_instalar_atualizacao(url, versao_nova):
     """Mantida apenas por compatibilidade, agora usamos o updater externo."""
