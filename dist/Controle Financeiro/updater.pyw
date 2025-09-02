@@ -1,88 +1,112 @@
 import os
 import sys
+import time
 import shutil
-import urllib.request
 import zipfile
 import tempfile
+import urllib.request
 import subprocess
 import tkinter as tk
 from tkinter import messagebox
-import time
 
-# ---------------- CONFIGURAÇÕES ----------------
-URL_ATUALIZACAO = "https://seu-servidor.com/ControleFinanceiro.zip"
+# -------------------------
+# Configurações
+# -------------------------
+REPO_RELEASE = "https://github.com/paulohidalgosantos/Controle-Financeiro/releases/latest/download/app.zip"
+
+# Pasta temporária para update
+TEMP_DIR = tempfile.mkdtemp(prefix="controle_financeiro_update_")
+LOG_FILE = os.path.join(TEMP_DIR, "update_log.txt")
+
+
+def log(msg):
+    """Grava mensagens no log e exibe no console"""
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+    print(msg)
+
+
+def baixar_zip(destino_zip):
+    log("Iniciando download do pacote de atualização...")
+    try:
+        urllib.request.urlretrieve(REPO_RELEASE, destino_zip)
+        log(f"Download concluído: {destino_zip}")
+    except Exception as e:
+        log(f"ERRO no download: {e}")
+        messagebox.showerror("Erro", f"Falha no download da atualização:\n{e}")
+        sys.exit(1)
+
+
+def extrair_zip(arquivo_zip, destino):
+    log(f"Extraindo {arquivo_zip} para {destino} ...")
+    try:
+        with zipfile.ZipFile(arquivo_zip, "r") as zip_ref:
+            zip_ref.extractall(destino)
+        log("Extração concluída.")
+    except Exception as e:
+        log(f"ERRO na extração: {e}")
+        messagebox.showerror("Erro", f"Falha na extração do pacote:\n{e}")
+        sys.exit(1)
+
+
+def substituir_app(app_antigo, pasta_nova):
+    log(f"Substituindo aplicativo antigo: {app_antigo}")
+    try:
+        # Remove antigo
+        if os.path.exists(app_antigo):
+            os.remove(app_antigo)
+            log("Aplicativo antigo removido.")
+        else:
+            log("Aviso: aplicativo antigo não encontrado (será apenas copiado).")
+
+        # Copia novo
+        nome_exe = os.path.basename(app_antigo)
+        novo_exe = os.path.join(pasta_nova, nome_exe)
+
+        if not os.path.exists(novo_exe):
+            log(f"ERRO: não encontrei {novo_exe} no pacote baixado.")
+            messagebox.showerror(
+                "Erro", "Novo executável não encontrado no pacote.")
+            sys.exit(1)
+
+        shutil.copy2(novo_exe, app_antigo)
+        log("Novo aplicativo copiado com sucesso.")
+    except Exception as e:
+        log(f"ERRO na substituição: {e}")
+        messagebox.showerror("Erro", f"Falha ao substituir o aplicativo:\n{e}")
+        sys.exit(1)
+
+
+def relancar(app_antigo):
+    log(f"Relançando o aplicativo atualizado: {app_antigo}")
+    try:
+        subprocess.Popen([app_antigo], shell=True)
+        log("Aplicativo atualizado relançado com sucesso.")
+        messagebox.showinfo(
+            "Atualização", "Aplicativo atualizado com sucesso!")
+        sys.exit(0)
+    except Exception as e:
+        log(f"ERRO ao relançar: {e}")
+        messagebox.showerror("Erro", f"Falha ao relançar o aplicativo:\n{e}")
+        sys.exit(1)
 
 
 def main():
-    if len(sys.argv) < 3:
-        messagebox.showerror("Erro", "Updater chamado de forma incorreta.")
+    if len(sys.argv) < 2:
+        messagebox.showerror("Erro", "Caminho do aplicativo não informado.")
         return
 
-    exe_atual = sys.argv[1]   # caminho completo do exe original
-    versao_local = sys.argv[2]
+    app_antigo = sys.argv[1]
+    log("=== Início da atualização ===")
+    log(f"App antigo: {app_antigo}")
 
-    pasta_app = os.path.dirname(exe_atual)
-    nome_exe = os.path.basename(exe_atual)
+    destino_zip = os.path.join(TEMP_DIR, "update.zip")
+    pasta_extraida = os.path.join(TEMP_DIR, "nova_versao")
 
-    pasta_temp = tempfile.mkdtemp(prefix="CF_Update_")
-
-    try:
-        # Baixa atualização
-        zip_path = os.path.join(pasta_temp, "update.zip")
-        urllib.request.urlretrieve(URL_ATUALIZACAO, zip_path)
-
-        # Extrai
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(pasta_temp)
-
-        # Procura novo exe
-        novo_exe = None
-        for root, _, files in os.walk(pasta_temp):
-            for f in files:
-                if f.endswith(".exe"):
-                    novo_exe = os.path.join(root, f)
-                    break
-
-        if not novo_exe:
-            messagebox.showerror(
-                "Erro", "Nenhum executável encontrado na atualização.")
-            return
-
-        destino = os.path.join(pasta_app, nome_exe)
-        backup = destino + ".old"
-
-        # Espera até que o exe antigo seja liberado
-        for _ in range(30):
-            try:
-                os.rename(destino, backup)
-                break
-            except PermissionError:
-                time.sleep(1)
-        else:
-            messagebox.showerror(
-                "Erro", "Não foi possível substituir o aplicativo (arquivo em uso).")
-            return
-
-        # Copia novo exe para o destino
-        shutil.copy2(novo_exe, destino)
-
-        # Remove backup
-        try:
-            os.remove(backup)
-        except:
-            pass
-
-        messagebox.showinfo(
-            "Atualização", "Aplicativo atualizado com sucesso!")
-
-        # Relança app atualizado
-        subprocess.Popen([destino], cwd=pasta_app)
-
-    except Exception as e:
-        messagebox.showerror("Erro na atualização", str(e))
-
-    finally:
-        shutil.rmtree(pasta_temp, ignore_errors=True)
+    baixar_zip(destino_zip)
+    extrair_zip(destino_zip, pasta_extraida)
+    substituir_app(app_antigo, pasta_extraida)
+    relancar(app_antigo)
 
 
 if __name__ == "__main__":
