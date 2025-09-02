@@ -6,68 +6,60 @@ import zipfile
 import tempfile
 import subprocess
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import scrolledtext, messagebox
 import time
-import traceback
+import threading
 
 # ---------------- CONFIGURAÇÕES ----------------
-# URL do zip contendo a atualização
 URL_ATUALIZACAO = "https://seu-servidor.com/ControleFinanceiro.zip"
+LOG_FILE = "update_log.txt"
+
+# ---------------- FUNÇÕES ----------------
 
 
-def log(msg, log_path):
-    """Registra mensagens no log com timestamp"""
+def escrever_log(msg):
+    """Escreve mensagem no Text e no arquivo de log."""
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    with open(log_path, "a", encoding="utf-8") as f:
-        f.write(f"[{timestamp}] {msg}\n")
+    linha = f"[{timestamp}] {msg}"
+    print(linha)
+    try:
+        text_area.config(state='normal')
+        text_area.insert(tk.END, linha + "\n")
+        text_area.see(tk.END)
+        text_area.update_idletasks()
+    except:
+        pass  # antes da janela pronta
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(linha + "\n")
 
 
-def main():
-    # Inicializa interface Tkinter mínima
-    root = tk.Tk()
-    root.withdraw()
-
-    # Verifica parâmetros
-    if len(sys.argv) < 3:
-        messagebox.showerror("Erro", "Updater chamado de forma incorreta.")
-        return
-
-    exe_atual = sys.argv[1]   # caminho completo do exe original
-    versao_local = sys.argv[2]
-
+def atualizar_app(exe_atual):
     pasta_app = os.path.dirname(exe_atual)
     nome_exe = os.path.basename(exe_atual)
-
-    # Cria pasta temporária e log
     pasta_temp = tempfile.mkdtemp(prefix="CF_Update_")
-    log_path = os.path.join(pasta_temp, "update_log.txt")
-    log(f"Iniciando atualização do {nome_exe} versão {versao_local}", log_path)
 
     try:
-        # Baixa atualização
-        zip_path = os.path.join(pasta_temp, "update.zip")
-        log(f"Baixando atualização de {URL_ATUALIZACAO}", log_path)
-        urllib.request.urlretrieve(URL_ATUALIZACAO, zip_path)
-        log("Download concluído", log_path)
+        escrever_log("Iniciando atualização...")
 
-        # Extrai atualização
+        zip_path = os.path.join(pasta_temp, "update.zip")
+        escrever_log(f"Baixando atualização de {URL_ATUALIZACAO} ...")
+        urllib.request.urlretrieve(URL_ATUALIZACAO, zip_path)
+        escrever_log("Download concluído.")
+
+        escrever_log("Extraindo arquivos...")
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(pasta_temp)
-        log(f"Arquivo extraído em {pasta_temp}", log_path)
+        escrever_log("Extração concluída.")
 
         # Procura novo exe
         novo_exe = None
-        for root_dir, _, files in os.walk(pasta_temp):
+        for root, _, files in os.walk(pasta_temp):
             for f in files:
                 if f.endswith(".exe"):
-                    novo_exe = os.path.join(root_dir, f)
-                    log(f"Novo executável encontrado: {novo_exe}", log_path)
+                    novo_exe = os.path.join(root, f)
                     break
-            if novo_exe:
-                break
-
         if not novo_exe:
-            log("Nenhum executável encontrado na atualização.", log_path)
+            escrever_log("Erro: nenhum executável encontrado na atualização.")
             messagebox.showerror(
                 "Erro", "Nenhum executável encontrado na atualização.")
             return
@@ -76,50 +68,63 @@ def main():
         backup = destino + ".old"
 
         # Espera até que o exe antigo seja liberado
-        log(f"Tentando substituir {destino}", log_path)
+        escrever_log("Substituindo aplicativo antigo...")
         for i in range(10):
             try:
                 os.rename(destino, backup)
-                log(f"Backup criado: {backup}", log_path)
+                escrever_log("Backup do antigo criado.")
                 break
             except PermissionError:
-                log(f"Tentativa {i+1}/10 falhou, arquivo em uso", log_path)
+                escrever_log("Arquivo em uso, aguardando...")
                 time.sleep(1)
         else:
-            log("Não foi possível substituir o aplicativo (arquivo em uso).", log_path)
+            escrever_log(
+                "Erro: não foi possível substituir o aplicativo (arquivo em uso).")
             messagebox.showerror(
                 "Erro", "Não foi possível substituir o aplicativo (arquivo em uso).")
             return
 
         # Copia novo exe
         shutil.copy2(novo_exe, destino)
-        log(f"Novo executável copiado para {destino}", log_path)
+        escrever_log("Novo aplicativo copiado com sucesso.")
 
         # Remove backup
         try:
             os.remove(backup)
-            log(f"Backup removido: {backup}", log_path)
-        except Exception as e:
-            log(f"Falha ao remover backup: {e}", log_path)
+            escrever_log("Backup antigo removido.")
+        except:
+            escrever_log("Não foi possível remover backup antigo.")
 
-        log("Atualização concluída com sucesso!", log_path)
+        escrever_log("Atualização concluída!")
         messagebox.showinfo(
             "Atualização", "Aplicativo atualizado com sucesso!")
 
         # Relança app atualizado
         subprocess.Popen([destino], cwd=pasta_app)
-        log(f"Aplicativo relançado: {destino}", log_path)
+        root.destroy()
 
     except Exception as e:
-        log(f"ERRO na atualização: {e}", log_path)
-        log(traceback.format_exc(), log_path)
+        escrever_log(f"Erro na atualização: {e}")
         messagebox.showerror("Erro na atualização", str(e))
-
     finally:
-        log("Finalizando updater", log_path)
-        # Não remove a pasta temporária para permitir ver o log
-        # shutil.rmtree(pasta_temp, ignore_errors=True)
+        shutil.rmtree(pasta_temp, ignore_errors=True)
 
 
-if __name__ == "__main__":
-    main()
+# ---------------- INTERFACE ----------------
+root = tk.Tk()
+root.title("Atualizando Controle Financeiro")
+root.geometry("500x300")
+root.resizable(False, False)
+
+text_area = scrolledtext.ScrolledText(root, state='normal', wrap=tk.WORD)
+text_area.pack(expand=True, fill='both', padx=10, pady=10)
+
+# ---------------- INÍCIO ----------------
+if len(sys.argv) < 2:
+    messagebox.showerror("Erro", "Updater chamado de forma incorreta.")
+    root.destroy()
+else:
+    exe_atual = sys.argv[1]  # caminho completo do exe original
+    threading.Thread(target=atualizar_app, args=(
+        exe_atual,), daemon=True).start()
+    root.mainloop()
