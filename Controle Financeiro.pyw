@@ -21,9 +21,8 @@ import locale
 
 VERSAO_ATUAL = "1.1.2"
 
-
 def buscar_atualizacao():
-    """Busca a última versão no GitHub e inicia atualização se houver."""
+    """Verifica se há atualização e chama o updater externo."""
     GITHUB_LATEST_RELEASE = "https://api.github.com/repos/paulohidalgosantos/Controle-Financeiro/releases/latest"
 
     def _task():
@@ -32,84 +31,34 @@ def buscar_atualizacao():
             r.raise_for_status()
             data = r.json()
             latest_version = data["tag_name"]
-            download_url = data["assets"][0]["browser_download_url"]
 
-            from Controle_Financeiro import VERSAO_ATUAL
             if latest_version != VERSAO_ATUAL:
-                # Existe atualização
-                baixar_e_instalar_atualizacao(download_url, latest_version)
+                # Executa o updater externo
+                exe_updater = os.path.join(os.path.dirname(sys.executable), "updater.pyw")
+                if os.path.exists(exe_updater):
+                    try:
+                        subprocess.Popen([sys.executable, exe_updater])
+                        sys.exit()
+                    except Exception as e:
+                        messagebox.showerror("Erro", f"Não foi possível iniciar o updater:\n{e}")
+                else:
+                    messagebox.showerror("Erro", "Updater não encontrado.")
             else:
                 messagebox.showinfo(
-                    "Atualização", "Você já possui a versão mais recente.")
+                    "Atualização",
+                    f"Você já possui a versão {VERSAO_ATUAL}."
+                )
         except Exception as e:
-            messagebox.showerror(
-                "Erro", f"Falha ao verificar atualização:\n{e}")
+            messagebox.showerror("Erro", f"Falha ao verificar atualização:\n{e}")
 
     threading.Thread(target=_task, daemon=True).start()
 
-
 def baixar_e_instalar_atualizacao(url, versao_nova):
-    """Baixa a atualização com barra de progresso e substitui o app antigo."""
-    janela = tk.Toplevel()
-    janela.title("Atualização")
-    janela.geometry("400x170")
-    janela.resizable(False, False)
-
-    tk.Label(janela, text=f"Atualizando para a versão {versao_nova}...", font=(
-        "Inter", 12)).pack(pady=10)
-    barra = ttk.Progressbar(janela, length=350, mode='determinate')
-    barra.pack(pady=10)
-    status = tk.Label(janela, text="Preparando download...",
-                      font=("Inter", 10))
-    status.pack(pady=5)
-    detalhe = tk.Label(janela, text="", font=("Inter", 9))
-    detalhe.pack()
-
-    def _download():
-        try:
-            temp_path = os.path.join(os.getcwd(), "temp_update.exe")
-            app_path = sys.executable
-            backup_path = app_path + ".backup"
-
-            with requests.get(url, stream=True, timeout=30) as r:
-                r.raise_for_status()
-                total_length = int(r.headers.get('content-length', 0))
-                downloaded = 0
-                with open(temp_path, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            perc = int(downloaded / total_length * 100)
-                            barra['value'] = perc
-                            status.config(text=f"Baixando... {perc}%")
-                            detalhe.config(
-                                text=f"{downloaded // 1024} KB / {total_length // 1024} KB")
-                            janela.update()
-
-            # Substitui app antigo
-            if os.path.exists(app_path):
-                if os.path.exists(backup_path):
-                    os.remove(backup_path)
-                shutil.move(app_path, backup_path)
-            shutil.move(temp_path, app_path)
-
-            status.config(text="Atualização concluída!")
-            detalhe.config(text=f"Backup do antigo: {backup_path}")
-            barra['value'] = 100
-            janela.update()
-            time.sleep(1)
-
-            # Reinicia o app atualizado
-            os.startfile(app_path)
-            sys.exit()
-
-        except Exception as e:
-            messagebox.showerror("Erro", f"Falha na atualização:\n{e}")
-            janela.destroy()
-
-    threading.Thread(target=_download, daemon=True).start()
-
+    """Mantida apenas por compatibilidade, agora usamos o updater externo."""
+    messagebox.showinfo(
+        "Atualização",
+        "O processo de atualização agora será realizado pelo updater externo."
+    )
 
 def verificar_dependencias():
     """Verifica se todas as dependências estão disponíveis - útil para debug"""

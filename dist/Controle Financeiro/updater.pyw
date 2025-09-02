@@ -1,12 +1,11 @@
-# updater.pyw
+import os
+import sys
+import time
+import threading
+import shutil
 import tkinter as tk
 from tkinter import ttk, messagebox
 import requests
-import os
-import sys
-import shutil
-import threading
-import time
 
 
 def atualizar_app():
@@ -33,7 +32,7 @@ def atualizar_app():
             raise Exception("Arquivo .exe da release não encontrado.")
 
         download_url = exe_asset["browser_download_url"]
-        temp_dir = os.path.join(os.path.dirname(sys.argv[0]), "temp")
+        temp_dir = os.path.join(os.path.dirname(sys.executable), "temp_update")
         os.makedirs(temp_dir, exist_ok=True)
         temp_file = os.path.join(temp_dir, exe_asset["name"])
 
@@ -43,31 +42,32 @@ def atualizar_app():
         with requests.get(download_url, stream=True) as r:
             r.raise_for_status()
             total_size = int(r.headers.get('content-length', 0))
-            chunk_size = 8192
             downloaded = 0
+            chunk_size = 8192
             with open(temp_file, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=chunk_size):
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
-                        progress = int(downloaded / total_size * 100)
-                        progress_bar['value'] = progress
+                        perc = int(downloaded / total_size * 100)
+                        progress_bar['value'] = perc
                         app.update_idletasks()
 
         time.sleep(0.2)
-        progress_bar['value'] = 100
         status_label.config(text="Substituindo app antigo...")
         app.update_idletasks()
         time.sleep(0.3)
 
-        # Substituir app antigo
-        exe_atual = os.path.join(os.path.dirname(
-            sys.argv[0]), "Controle Financeiro.exe")
+        # Substituir app antigo automaticamente, mesmo se o usuário renomeou o exe
+        exe_atual = sys.executable
+        backup_path = exe_atual + ".backup"
         if os.path.exists(exe_atual):
-            os.remove(exe_atual)
+            if os.path.exists(backup_path):
+                os.remove(backup_path)
+            shutil.move(exe_atual, backup_path)
         shutil.move(temp_file, exe_atual)
 
-        # Limpar pasta temp
+        # Limpar pasta temporária
         shutil.rmtree(temp_dir, ignore_errors=True)
 
         status_label.config(text="Atualização concluída!")
