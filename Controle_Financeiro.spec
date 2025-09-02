@@ -2,15 +2,17 @@
 import os
 import sys
 import glob
+from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.building.build_main import Analysis, PYZ, EXE
 
 project_dir = os.path.abspath(".")
 icon_path = os.path.join(project_dir, "icone.ico")
 
-# Detecta diretório do Python
+# Diretório do Python e versão
 python_dir = os.path.dirname(sys.executable)
 python_version = f"{sys.version_info.major}{sys.version_info.minor}"
 
-# Coleta DLLs essenciais manualmente
+# DLLs essenciais
 dlls_to_include = []
 
 # DLLs principais do Python
@@ -35,11 +37,15 @@ if os.path.exists(dlls_dir):
         if dll_name.startswith(('python', '_')):
             dlls_to_include.append((dll_file, '.'))
 
+# Data files do PIL/Tkinter
+datas = [('icone.png', '.')]
+
+# --------- Analysis ----------
 a = Analysis(
     ['Controle Financeiro.pyw'],
     pathex=[project_dir],
     binaries=dlls_to_include,
-    datas=[('icone.png', '.'), ('updater.pyw', '.')],
+    datas=datas,
     hiddenimports=[
         'tkinter', 'tkinter.ttk', 'tkinter.messagebox',
         'PIL.Image', 'PIL.ImageTk', 'ttkbootstrap', 'ttkbootstrap.constants'
@@ -48,11 +54,13 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    noarchive=False,
+    noarchive=False
 )
 
+# --------- PYZ ----------
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
+# --------- EXE ----------
 exe = EXE(
     pyz,
     a.scripts,
@@ -65,7 +73,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[dll[0] for dll in dlls_to_include],  # impede UPX de compactar DLLs essenciais
+    upx_exclude=[dll[0] for dll in dlls_to_include],  # não compacta DLLs essenciais
     console=False,
-    icon=icon_path,
+    icon=icon_path
 )

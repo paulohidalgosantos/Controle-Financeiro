@@ -1,6 +1,4 @@
-VERSAO_ATUAL = "1.1.0"
-
-import os, sys, time, json, copy, math, subprocess, webbrowser, urllib.request, locale
+import ttkbootstrap as tb
 from datetime import datetime
 from collections import defaultdict
 from operator import itemgetter
@@ -8,72 +6,65 @@ from functools import partial
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
 from PIL import Image, ImageTk
-import ttkbootstrap as tb
 from ttkbootstrap import Style
 from ttkbootstrap.constants import *
+import os
+import sys
+import time
+import json
+import copy
+import math
+import subprocess
+import webbrowser
+import urllib.request
+import locale
 
-
-def recurso_caminho(relativo):
-    """Obtém caminho correto para recursos mesmo após empacotado com PyInstaller."""
-    if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, relativo)
-    return os.path.join(os.path.abspath("."), relativo)
-
-# Função para buscar atualização e baixar se disponível
+VERSAO_ATUAL = "1.1.2"
 
 def buscar_atualizacao():
-    url_versao = "https://raw.githubusercontent.com/paulohidalgosantos/Controle-Financeiro/main/versao.txt"
+    """Verifica se há uma nova versão disponível no GitHub e pergunta ao usuário se quer atualizar"""
     try:
-        with urllib.request.urlopen(url_versao, timeout=5) as response:
-            versao_remota = response.read().decode().strip()
-
-        if versao_remota > VERSAO_ATUAL:
-            if messagebox.askyesno("Atualização disponível",
-                                   f"Nova versão {versao_remota} disponível.\nDeseja atualizar agora?"):
-                baixar_e_instalar_atualizacao()
-        else:
-            messagebox.showinfo("Atualização", "Você já está na versão mais recente.")
+        url = "https://api.github.com/repos/paulohidalgosantos/Controle-Financeiro/releases/latest"
+        with urllib.request.urlopen(url) as response:
+            data = json.loads(response.read())
+            ultima_versao = data["tag_name"]  # tag da release
+            if ultima_versao > VERSAO_ATUAL:
+                if messagebox.askyesno("Atualização disponível",
+                                       f"Nova versão {ultima_versao} disponível.\nDeseja baixar e instalar?"):
+                    url_download = data["assets"][0]["browser_download_url"]
+                    baixar_e_instalar_atualizacao(url_download)
+            else:
+                messagebox.showinfo("Atualização", "Você já está usando a versão mais recente.")
     except Exception as e:
-        print(f"[ERRO] Falha ao verificar atualização: {e}")
+        messagebox.showerror("Erro", f"Não foi possível buscar atualização.\n{e}")
 
-def baixar_e_instalar_atualizacao():
+def baixar_e_instalar_atualizacao(url_download):
+    """Baixa o novo exe e substitui o atual no mesmo caminho e nome"""
     try:
-        url_api = "https://api.github.com/repos/paulohidalgosantos/Controle-Financeiro/releases/latest"
-        with urllib.request.urlopen(url_api, timeout=10) as response:
-            release = json.loads(response.read().decode())
+        caminho_atual = sys.executable
+        pasta_atual = os.path.dirname(caminho_atual)
+        nome_arquivo = os.path.basename(caminho_atual)
+        caminho_temp = os.path.join(pasta_atual, "nova_versao_temp.exe")
 
-        # Pega o .exe mais recente
-        exe_url = next(
-            (asset["browser_download_url"] for asset in release["assets"] if asset["name"].endswith(".exe")),
-            None
-        )
-        if not exe_url:
-            raise Exception("Nenhum .exe encontrado na última release.")
+        # Baixa a nova versão
+        urllib.request.urlretrieve(url_download, caminho_temp)
 
-        caminho_atual = os.path.abspath(sys.argv[0])
-        pasta = os.path.dirname(caminho_atual)
-
-        # Onde salvar temporariamente
-        novo_exe = os.path.join(pasta, "novo_app.exe")
-
-        # Baixa o arquivo
-        with urllib.request.urlopen(exe_url, timeout=30) as response:
-            conteudo = response.read()
-            with open(novo_exe, "wb") as f:
-                f.write(conteudo)
-
-        # Chama o updater externo (com o mesmo python embutido do app atual)
-        updater_path = os.path.join(pasta, "updater.pyw")
-        subprocess.Popen(
-            [sys.executable, updater_path, caminho_atual, novo_exe],
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
-
-        # Fecha o app atual
-        sys.exit(0)
+        # Cria um script temporário para substituir o exe atual após fechar o app
+        script_bat = os.path.join(pasta_atual, "atualizar.bat")
+        with open(script_bat, "w") as f:
+            f.write(f"""@echo off
+timeout /t 1
+del "{caminho_atual}"
+move "{caminho_temp}" "{caminho_atual}"
+start "" "{caminho_atual}"
+del "%~f0"
+""")
+        messagebox.showinfo("Atualização", "O app será fechado para instalar a atualização.")
+        os.startfile(script_bat)
+        sys.exit()  # fecha o app para que o bat possa substituir o exe
 
     except Exception as e:
-        print(f"[ERRO] Falha ao atualizar: {e}")
+        messagebox.showerror("Erro", f"Não foi possível atualizar o app.\n{e}")
 
 def verificar_dependencias():
     """Verifica se todas as dependências estão disponíveis - útil para debug"""
@@ -82,19 +73,19 @@ def verificar_dependencias():
         print("✓ tkinter OK")
     except ImportError as e:
         print(f"✗ tkinter ERRO: {e}")
-    
+
     try:
         import PIL
         print("✓ PIL OK")
     except ImportError as e:
         print(f"✗ PIL ERRO: {e}")
-    
+
     try:
         import ttkbootstrap
         print("✓ ttkbootstrap OK")
     except ImportError as e:
         print(f"✗ ttkbootstrap ERRO: {e}")
-    
+
     # Verificar se está rodando como executável empacotado
     if getattr(sys, 'frozen', False):
         print("✓ Rodando como executável empacotado")
@@ -107,7 +98,8 @@ def verificar_dependencias():
 
 
 # Define BASE_DIR uma única vez
-BASE_DIR = os.path.join(os.path.expanduser("~"), "AppData", "Local", "ControleFinanceiro")
+BASE_DIR = os.path.join(os.path.expanduser(
+    "~"), "AppData", "Local", "ControleFinanceiro")
 os.makedirs(BASE_DIR, exist_ok=True)
 
 # Define pasta oculta para salvar os dados
@@ -156,8 +148,10 @@ def carregar_dados():
                 }
 
                 cartoes = conteudo.get("cartoes", []) or []
-                contas_fixas_modelo = conteudo.get("contas_fixas_modelo", []) or []
-                tipos_gasto = conteudo.get("tipos_gasto") or TIPOS_GASTO_PADRAO.copy()
+                contas_fixas_modelo = conteudo.get(
+                    "contas_fixas_modelo", []) or []
+                tipos_gasto = conteudo.get(
+                    "tipos_gasto") or TIPOS_GASTO_PADRAO.copy()
 
                 # Corrige inicio_uso evitando erro se for None
                 inicio_uso_raw = conteudo.get("inicio_uso")
@@ -204,6 +198,7 @@ def carregar_dados():
 
     salvar_dados()
 
+
 def salvar_dados():
     try:
         dados_para_salvar = {
@@ -228,6 +223,7 @@ def salvar_dados():
     except Exception as e:
         print("Erro ao salvar dados:", e)
 
+
 # Moeda Brasileira
 try:
     locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
@@ -235,28 +231,37 @@ except:
     locale.setlocale(locale.LC_ALL, 'Portuguese_Brazil.1252')
 
 # Tipos de gasto iniciais
-TIPOS_GASTO_PADRAO = ["Lazer", "Restaurante", "Supermercado", "Pessoal", "Transporte", "Saúde"]
+TIPOS_GASTO_PADRAO = ["Lazer", "Restaurante",
+                      "Supermercado", "Pessoal", "Transporte", "Saúde"]
 tipos_gasto = TIPOS_GASTO_PADRAO.copy()
 
+
 def resource_path(relative_path):
-    """Retorna o caminho absoluto para um recurso, funcionando no Python e no EXE."""
+    """Retorna o caminho absoluto para um recurso (mesmo após empacotamento)."""
     try:
-        # PyInstaller cria uma pasta temporária _MEIPASS
+        # PyInstaller cria uma pasta temporária em _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
-        base_path = os.path.abspath(".")
+        # Caso normal: pega a pasta onde está o script
+        base_path = os.path.dirname(os.path.abspath(__file__))
 
     return os.path.join(base_path, relative_path)
 
+# -----------------------------
+# Função para aplicar ícone em qualquer janela (Tk ou Toplevel)
+# -----------------------------
+
+
 def aplicar_icone(janela):
-    """Aplica o ícone padrão a uma janela Toplevel."""
+    """Aplica o ícone padrão a qualquer janela Tkinter."""
+    global icone
     if icone:
         janela.iconphoto(False, icone)
-
-
 # -----------------------------
 # Tela de Login
 # -----------------------------
+
+
 def tela_login(root, icone=None):
     global usuario_atual
 
@@ -284,7 +289,8 @@ def tela_login(root, icone=None):
 
     frame_central = tk.Frame(login, padx=30, pady=25)
     frame_central.pack(expand=True, fill="both", padx=20, pady=20)
-    frame_central.configure(relief="solid", borderwidth=1, highlightbackground="#e9ecef", highlightthickness=1)
+    frame_central.configure(relief="solid", borderwidth=1,
+                            highlightbackground="#e9ecef", highlightthickness=1)
 
     tk.Label(frame_central, text="👤 Acesso ao Sistema", font=("Inter", 16, "bold"),
              bg="#ffffff", fg="#212529").pack(pady=(0, 20))
@@ -301,7 +307,8 @@ def tela_login(root, icone=None):
     def entrar():
         usuario = combo_usuarios.get()
         if not usuario:
-            show_warning("Atenção", "Nenhum usuário selecionado. Cadastre um novo usuário.")
+            show_warning(
+                "Atenção", "Nenhum usuário selecionado. Cadastre um novo usuário.")
             return
         global usuario_atual
         usuario_atual = usuario
@@ -340,7 +347,8 @@ def tela_login(root, icone=None):
         tk.Label(cadastro_frame, text="Nome do usuário:", font=("Inter", 12),
                  bg="#ffffff", fg="#495057").pack(pady=10)
 
-        entry_nome = tk.Entry(cadastro_frame, font=("Inter", 11), width=25, relief="solid", bd=1)
+        entry_nome = tk.Entry(cadastro_frame, font=(
+            "Inter", 11), width=25, relief="solid", bd=1)
         entry_nome.pack(pady=8)
         entry_nome.focus()
         entry_nome.bind("<Return>", lambda event: salvar_usuario())
@@ -377,6 +385,7 @@ def tela_login(root, icone=None):
     # Espera o login ser concluído antes de continuar
     root.wait_window(login)
 
+
 # -----------------------------
 # Inicialização da aplicação
 # -----------------------------
@@ -387,61 +396,22 @@ if __name__ == "__main__":
     app = tb.Window(themename="morph")
 
     # --- COR PADRÃO ---
-    APP_BG = "#f8f9fa"  # cinza claro (ou qualquer outra que preferir)
-
-    # altera o fundo padrão para todos os widgets tk.*
+    APP_BG = "#f8f9fa"  # cinza claro
     app.option_add("*Background", APP_BG)
     app.option_add("*foreground", "#212529")  # cor padrão do texto
 
     app.title(f"💰 Controle Financeiro {VERSAO_ATUAL}")
     app.state('zoomed')
 
-    # Carregar ícone (compatível com empacotamento)
-    icone = None
+    # Agora que a janela Tk existe, cria o ícone
     try:
         caminho_icone = resource_path("icone.png")
-        icone = tk.PhotoImage(file=caminho_icone)
+        imagem = Image.open(caminho_icone)
+        icone = ImageTk.PhotoImage(imagem)
         app.iconphoto(False, icone)
-    except Exception:
-        print("⚠️ Ícone icone.png não encontrado.")
-
-    # -------------------------
-    # ESCONDER janela principal antes do login
-    # -------------------------
-    app.update()
-    app.withdraw()
-
-    # -------------------------
-    # Chamar tela de login
-    # -------------------------
-    tela_login(app, icone)
-
-    # -------------------------
-    # MOSTRAR janela principal apenas se houver usuário logado
-    # -------------------------
-    if not usuario_atual:
-        sys.exit()
-
-    app.deiconify()
-    app.state('zoomed')
-
-# -----------------------------
-# Funções de mensagem com parent app
-# -----------------------------
-def show_info(msg, title="Informação"):
-    """Exibe uma mensagem de informação usando a janela principal como parent."""
-    messagebox.showinfo(title, msg, parent=app)
-
-def show_warning(msg, title="Aviso"):
-    """Exibe uma mensagem de aviso usando a janela principal como parent."""
-    messagebox.showwarning(title, msg, parent=app)
-
-def show_error(msg, title="Erro"):
-    """Exibe uma mensagem de erro usando a janela principal como parent."""
-    messagebox.showerror(title, msg, parent=app)
-
-
-
+    except Exception as e:
+        icone = None
+        print(f"⚠️ Erro ao carregar ícone: {e}")
 
     # -------------------------
     # ESCONDER janela principal antes do login
@@ -463,10 +433,40 @@ def show_error(msg, title="Erro"):
     app.deiconify()
     app.state('zoomed')
 
+
+def show_warning(msg, title="Aviso"):
+    """Exibe uma mensagem de aviso usando a janela principal como parent."""
+    messagebox.showwarning(title, msg, parent=app)
+
+def show_error(msg, title="Erro"):
+    """Exibe uma mensagem de erro usando a janela principal como parent."""
+    messagebox.showerror(title, msg, parent=app)
+
+    # -------------------------
+    # ESCONDER janela principal antes do login
+    # -------------------------
+    app.update()
+    app.withdraw()
+
+    # -------------------------
+    # Chamar tela de login
+    # -------------------------
+    tela_login(app, icone)
+
+    # -------------------------
+    # MOSTRAR janela principal apenas se houver usuário logado
+    # -------------------------
+    if not ('usuario_atual' in globals() and usuario_atual):
+        sys.exit()
+
+    app.deiconify()
+    app.state('zoomed')
+
+
 # -------------------------
 # Header e boas-vindas
 # -------------------------
-header_frame = tk.Frame(app, height=80, bg="#0d6efd", relief="flat")
+header_frame = tk.Frame(app, height=50, bg="#0d6efd", relief="flat")
 header_frame.pack(fill="x")
 header_frame.pack_propagate(False)
 
@@ -477,10 +477,10 @@ global label_bem_vindo
 label_bem_vindo = tk.Label(
     welcome_frame,
     text=f"Olá {usuario_atual}!",
-    font=("Inter", 22, "bold"),
+    font=("Inter", 19, "bold"),
     anchor="center"
 )
-label_bem_vindo.pack(pady=15, expand=True)
+label_bem_vindo.pack(pady=10, expand=True)
 
 # 🔒 Força as cores manualmente (ignora tema ttkbootstrap)
 label_bem_vindo.configure(bg="#d9e3f1")
@@ -497,8 +497,8 @@ def criar_menu():
     menubar = tk.Menu(app, bg="#f8f9fa", fg="#495057", activebackground="#e9ecef", activeforeground="#212529",
                       font=("Inter", 10))
 
-    menu_gerenciar = tk.Menu(menubar, tearoff=0, font=("Inter", 10), 
-                            bg="#d9e3f1", fg="#495057", activebackground="#0d6efd", activeforeground="#f8f9fa")
+    menu_gerenciar = tk.Menu(menubar, tearoff=0, font=("Inter", 10),
+                             bg="#d9e3f1", fg="#495057", activebackground="#0d6efd", activeforeground="#f8f9fa")
 
     opcoes = [
         (" 👤     Trocar Usuário", trocar_usuario),
@@ -515,7 +515,6 @@ def criar_menu():
         if i in [4, 6, 8]:
             menu_gerenciar.add_separator()
         menu_gerenciar.add_command(label=label, command=comando)
-
     menubar.add_cascade(label="⚙️  Gerenciar", menu=menu_gerenciar)
     app.config(menu=menubar)
 
@@ -537,18 +536,21 @@ def definir_inicio_uso():
     main_frame = tk.Frame(janela, bg="#f8f9fa", padx=20, pady=20)
     main_frame.pack(fill="both", expand=True)
 
-    ttk.Label(main_frame, text="Mês de início (1 a 12):", font=("Inter", 11)).pack(pady=(15, 5))
+    ttk.Label(main_frame, text="Mês de início (1 a 12):",
+              font=("Inter", 11)).pack(pady=(15, 5))
     combo_mes = ttk.Combobox(main_frame, values=list(range(1, 13)), state="readonly",
                              justify="center", font=("Inter", 10))
     combo_mes.pack()
     combo_mes.current((inicio_uso[0] - 1) if inicio_uso else 0)
 
-    ttk.Label(main_frame, text="Ano de início (ex: 2023):", font=("Inter", 11)).pack(pady=(15, 5))
+    ttk.Label(main_frame, text="Ano de início (ex: 2023):",
+              font=("Inter", 11)).pack(pady=(15, 5))
     entry_ano = ttk.Entry(main_frame, justify="center", font=("Inter", 10))
     entry_ano.pack()
-    entry_ano.insert(0, str(inicio_uso[1]) if inicio_uso else str(datetime.now().year))
+    entry_ano.insert(
+        0, str(inicio_uso[1]) if inicio_uso else str(datetime.now().year))
 
-    # ---------------- Função para mensagens com ícone ----------------
+    # ---------------- Função para mensagens ----------------
     def mostrar_mensagem(titulo, mensagem, tipo="info", ao_fechar=None):
         msg_janela = tk.Toplevel(janela)
         msg_janela.title(titulo)
@@ -565,7 +567,8 @@ def definir_inicio_uso():
 
         frame = tk.Frame(msg_janela, bg="#f8f9fa", padx=20, pady=20)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text=mensagem, font=("Inter", 11), justify="center", wraplength=320).pack(pady=10)
+        ttk.Label(frame, text=mensagem, font=("Inter", 11),
+                  justify="center", wraplength=320).pack(pady=10)
 
         def fechar():
             msg_janela.destroy()
@@ -573,7 +576,7 @@ def definir_inicio_uso():
                 ao_fechar()
 
         ttk.Button(frame, text="OK", command=fechar,
-                   bootstyle="success" if tipo=="info" else "danger").pack()
+                   bootstyle="success" if tipo == "info" else "danger").pack()
 
     # ---------------- Função de confirmação ----------------
     def confirmar():
@@ -590,18 +593,25 @@ def definir_inicio_uso():
 
             inicio_uso = (mes, ano)
             salvar_dados()
-            recalcular_saldos_em_cadeia()  # Recalcula todos os meses
-            atualizar_resumo()
 
-            mostrar_mensagem("Sucesso", f"Início do uso definido para {mes:02d}/{ano}", tipo="info",
-                             ao_fechar=lambda: janela.destroy())
+            # Recalcula todos os meses afetados pelo novo início de uso
+            recalcular_saldos_em_cadeia()
+            atualizar_resumo()  # Atualiza a interface com os novos saldos
+
+            mostrar_mensagem(
+                "Sucesso",
+                f"Início do uso definido para {mes:02d}/{ano}",
+                tipo="info",
+                ao_fechar=lambda: janela.destroy()
+            )
 
         except ValueError as ve:
             mostrar_mensagem("Erro de validação", f"Erro: {ve}", tipo="erro")
         except Exception:
             mostrar_mensagem("Erro", "Preencha os campos corretamente.", tipo="erro")
 
-    ttk.Button(main_frame, text="✓ Confirmar", command=confirmar, bootstyle="success").pack(pady=20)
+    ttk.Button(main_frame, text="✓ Confirmar", command=confirmar,
+               bootstyle="success").pack(pady=20)
     janela.bind('<Return>', lambda event: confirmar())
 
 def gerenciar_cartoes():
@@ -617,17 +627,17 @@ def gerenciar_cartoes():
     main_frame = tk.Frame(janela, bg="#f8f9fa", padx=25, pady=25)
     main_frame.pack(fill="both", expand=True)
 
-    ttk.Label(main_frame, text="💳 Gerenciar Cartões", 
+    ttk.Label(main_frame, text="💳 Gerenciar Cartões",
               font=("Inter", 15, "bold")).pack(pady=(0, 20))
 
     frame_botoes = ttk.Frame(main_frame)
     frame_botoes.pack(pady=10)
 
-    ttk.Button(frame_botoes, text="➕ Adicionar Cartão", width=28, 
+    ttk.Button(frame_botoes, text="➕ Adicionar Cartão", width=28,
                command=lambda: adicionar_cartao(janela), bootstyle="success").pack(pady=8)
-    ttk.Button(frame_botoes, text="✏️ Editar Cartão", width=28, 
+    ttk.Button(frame_botoes, text="✏️ Editar Cartão", width=28,
                command=lambda: editar_cartao(janela), bootstyle="primary").pack(pady=8)
-    ttk.Button(frame_botoes, text="🗑️ Remover Cartão", width=28, 
+    ttk.Button(frame_botoes, text="🗑️ Remover Cartão", width=28,
                command=lambda: excluir_cartao(janela), bootstyle="danger").pack(pady=8)
     aplicar_icone(janela)
 
@@ -645,90 +655,10 @@ def abrir_gerenciador_categorias():
     main_frame = tk.Frame(janela, bg="#f8f9fa", padx=25, pady=25)
     main_frame.pack(fill="both", expand=True)
 
-    ttk.Label(main_frame, text="📂 Gerenciar Categorias", 
+    ttk.Label(main_frame, text="📂 Gerenciar Categorias",
               font=("Inter", 15, "bold")).pack(pady=(0, 20))
-    ttk.Button(main_frame, text="📝 Editar categorias", width=28, 
+    ttk.Button(main_frame, text="📝 Editar categorias", width=28,
                command=lambda: editar_tipos_gastos(janela), bootstyle="primary").pack(pady=10)
-
-def adicionar_cartao(janela_anterior):
-    janela_anterior.destroy()
-    janela = tk.Toplevel(app)
-    janela.title("Adicionar Cartão")
-    janela.configure(bg="#f8f9fa")
-
-    largura = 350
-    altura = 300
-    x = (janela.winfo_screenwidth() // 2) - (largura // 2)
-    y = (janela.winfo_screenheight() // 2) - (altura // 2)
-    janela.geometry(f"{largura}x{altura}+{x}+{y}")
-    janela.attributes("-topmost", True)
-    janela.grab_set()
-
-    main_frame = tk.Frame(janela, bg="#f8f9fa", padx=20, pady=20)
-    main_frame.pack(fill="both", expand=True)
-
-    ttk.Label(main_frame, text="Nome do Cartão:", font=("Inter", 11)).pack(pady=8)
-    entrada_nome = ttk.Entry(main_frame, font=("Inter", 10))
-    entrada_nome.pack(pady=5)
-
-    ttk.Label(main_frame, text="Dia de Fechamento da Fatura (1-31):", font=("Inter", 11)).pack(pady=8)
-    entrada_fechamento = ttk.Entry(main_frame, font=("Inter", 10))
-    entrada_fechamento.pack(pady=5)
-
-    def mostrar_erro_toplevel(mensagem):
-        erro_janela = tk.Toplevel(janela)
-        erro_janela.title("Erro")
-        erro_janela.geometry("350x120")
-        erro_janela.attributes("-topmost", True)
-        erro_janela.grab_set()
-        erro_janela.configure(bg="#f8f9fa")
-
-        erro_frame = tk.Frame(erro_janela, bg="#f8f9fa", padx=15, pady=15)
-        erro_frame.pack(fill="both", expand=True)
-
-        ttk.Label(erro_frame, text=mensagem, foreground="#dc3545", wraplength=300,
-                 font=("Inter", 10)).pack(pady=10)
-        ttk.Button(erro_frame, text="OK", command=erro_janela.destroy, 
-                  bootstyle="danger").pack()
-
-        erro_janela.update_idletasks()
-        w = erro_janela.winfo_width()
-        h = erro_janela.winfo_height()
-        x = janela.winfo_rootx() + (janela.winfo_width() // 2) - (w // 2)
-        y = janela.winfo_rooty() + (janela.winfo_height() // 2) - (h // 2)
-        erro_janela.geometry(f"+{x}+{y}")
-
-    def salvar():
-        nome = entrada_nome.get().strip()
-        fechamento_str = entrada_fechamento.get().strip()
-
-        if not nome:
-            mostrar_erro_toplevel("Nome do cartão não pode ser vazio.")
-            return
-        if not fechamento_str.isdigit():
-            mostrar_erro_toplevel("Dia de fechamento deve ser um número entre 1 e 31.")
-            return
-        fechamento = int(fechamento_str)
-        if not (1 <= fechamento <= 31):
-            mostrar_erro_toplevel("Dia de fechamento deve estar entre 1 e 31.")
-            return
-
-        for c in cartoes:
-            if c['nome'].lower() == nome.lower():
-                mostrar_erro_toplevel("Cartão com esse nome já existe.")
-                return
-
-        cartoes.append({"nome": nome, "fechamento": fechamento})
-
-        atualizar_resumo()
-        janela.destroy()
-
-    ttk.Button(main_frame, text="💾 Salvar", command=salvar, 
-               bootstyle="success").pack(pady=20)
-
-    # Bind para tecla Enter ativar salvar
-    janela.bind("<Return>", lambda event: salvar())
-    aplicar_icone(janela)
 
 def editar_cartao(janela_anterior):
     if not cartoes:
@@ -747,17 +677,20 @@ def editar_cartao(janela_anterior):
     main_frame = tk.Frame(janela, bg="#f8f9fa", padx=20, pady=20)
     main_frame.pack(fill="both", expand=True)
 
-    ttk.Label(main_frame, text="Selecione o cartão para editar:", font=("Inter", 11)).pack(pady=8)
+    ttk.Label(main_frame, text="Selecione o cartão para editar:",
+              font=("Inter", 11)).pack(pady=8)
 
     combo_cartoes = ttk.Combobox(main_frame, state="readonly", values=[c['nome'] for c in cartoes],
                                  font=("Inter", 10))
     combo_cartoes.pack(pady=5)
 
-    ttk.Label(main_frame, text="Novo nome do Cartão:", font=("Inter", 11)).pack(pady=(15, 5))
+    ttk.Label(main_frame, text="Novo nome do Cartão:",
+              font=("Inter", 11)).pack(pady=(15, 5))
     entrada_nome = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_nome.pack(pady=5)
 
-    ttk.Label(main_frame, text="Novo dia de Fechamento da Fatura (1-31):", font=("Inter", 11)).pack(pady=(15, 5))
+    ttk.Label(main_frame, text="Novo dia de Fechamento da Fatura (1-31):",
+              font=("Inter", 11)).pack(pady=(15, 5))
     entrada_fechamento = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_fechamento.pack(pady=5)
 
@@ -786,17 +719,20 @@ def editar_cartao(janela_anterior):
             mostrar_erro_toplevel("Nome do cartão não pode ser vazio.", janela)
             return
         if not fechamento_str.isdigit():
-            mostrar_erro_toplevel("Dia de fechamento deve ser um número entre 1 e 31.", janela)
+            mostrar_erro_toplevel(
+                "Dia de fechamento deve ser um número entre 1 e 31.", janela)
             return
         fechamento = int(fechamento_str)
         if not (1 <= fechamento <= 31):
-            mostrar_erro_toplevel("Dia de fechamento deve estar entre 1 e 31.", janela)
+            mostrar_erro_toplevel(
+                "Dia de fechamento deve estar entre 1 e 31.", janela)
             return
 
         # Verificar se já existe outro cartão com esse nome (exceto o atual)
         for i, c in enumerate(cartoes):
             if i != idx and c['nome'].lower() == novo_nome.lower():
-                mostrar_erro_toplevel("Já existe um cartão com esse nome.", janela)
+                mostrar_erro_toplevel(
+                    "Já existe um cartão com esse nome.", janela)
                 return
 
         # Atualiza os dados do cartão
@@ -821,10 +757,13 @@ def editar_cartao(janela_anterior):
         frame = tk.Frame(sucesso_janela, bg="#f8f9fa", padx=20, pady=20)
         frame.pack(fill="both", expand=True)
 
-        ttk.Label(frame, text="Cartão atualizado com sucesso!", font=("Inter", 11)).pack(pady=10)
-        ttk.Button(frame, text="OK", command=sucesso_janela.destroy, bootstyle="success").pack()
+        ttk.Label(frame, text="Cartão atualizado com sucesso!",
+                  font=("Inter", 11)).pack(pady=10)
+        ttk.Button(frame, text="OK", command=sucesso_janela.destroy,
+                   bootstyle="success").pack()
 
-    ttk.Button(main_frame, text="💾 Salvar Alterações", command=salvar, bootstyle="success").pack(pady=20)
+    ttk.Button(main_frame, text="💾 Salvar Alterações",
+               command=salvar, bootstyle="success").pack(pady=20)
     janela.bind("<Return>", lambda event: salvar())
     aplicar_icone(janela)
 
@@ -885,9 +824,11 @@ def excluir_cartao(janela_anterior):
     main_frame = tk.Frame(nova_janela, bg="#f8f9fa", padx=20, pady=20)
     main_frame.pack(fill="both", expand=True)
 
-    ttk.Label(main_frame, text="Selecione o cartão para excluir:", font=("Inter", 11)).pack(pady=8)
+    ttk.Label(main_frame, text="Selecione o cartão para excluir:",
+              font=("Inter", 11)).pack(pady=8)
 
-    combo_cartoes = ttk.Combobox(main_frame, state="readonly", font=("Inter", 10))
+    combo_cartoes = ttk.Combobox(
+        main_frame, state="readonly", font=("Inter", 10))
     combo_cartoes.pack(pady=5)
 
     def atualizar_combo():
@@ -995,7 +936,8 @@ def zerar_tudo():
     frame_senha = tk.Frame(senha_janela, bg="#f8f9fa", padx=20, pady=20)
     frame_senha.pack(fill="both", expand=True)
 
-    ttk.Label(frame_senha, text="Digite a senha para zerar todos os dados:", font=("Inter", 11)).pack(pady=(0, 10))
+    ttk.Label(frame_senha, text="Digite a senha para zerar todos os dados:", font=(
+        "Inter", 11)).pack(pady=(0, 10))
     entrada_senha = ttk.Entry(frame_senha, show="*", font=("Inter", 10))
     entrada_senha.pack(pady=(0, 10), fill="x")
 
@@ -1048,15 +990,18 @@ def zerar_tudo():
                 info_janela.configure(bg="#f8f9fa")
                 aplicar_icone(info_janela)
 
-                frame_info = tk.Frame(info_janela, bg="#f8f9fa", padx=20, pady=20)
+                frame_info = tk.Frame(
+                    info_janela, bg="#f8f9fa", padx=20, pady=20)
                 frame_info.pack(fill="both", expand=True)
                 ttk.Label(frame_info, text="Todos os dados foram apagados e os tipos de gastos foram restaurados.",
                           font=("Inter", 11), justify="center", wraplength=320).pack(pady=10)
                 ttk.Button(frame_info, text="OK", command=lambda: (info_janela.destroy(), app.destroy(), sys.exit()),
                            bootstyle="secondary").pack()
 
-            ttk.Button(botoes, text="✓ Sim", command=sim, bootstyle="danger").pack(side="left", padx=10)
-            ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
+            ttk.Button(botoes, text="✓ Sim", command=sim,
+                       bootstyle="danger").pack(side="left", padx=10)
+            ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy,
+                       bootstyle="secondary").pack(side="right", padx=10)
         else:
             # Janela de erro customizada
             erro_janela = tk.Toplevel(app)
@@ -1075,9 +1020,11 @@ def zerar_tudo():
             frame_erro.pack(fill="both", expand=True)
             ttk.Label(frame_erro, text="Senha inválida. Ação cancelada.",
                       font=("Inter", 11), justify="center", wraplength=320).pack(pady=10)
-            ttk.Button(frame_erro, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+            ttk.Button(frame_erro, text="OK",
+                       command=erro_janela.destroy, bootstyle="danger").pack()
 
-    ttk.Button(frame_senha, text="✓ Confirmar", command=verificar_senha, bootstyle="success").pack(pady=10)
+    ttk.Button(frame_senha, text="✓ Confirmar",
+               command=verificar_senha, bootstyle="success").pack(pady=10)
     senha_janela.bind('<Return>', lambda event: verificar_senha())
 
 def exportar_dados():
@@ -1121,8 +1068,10 @@ def exportar_dados():
         frame = tk.Frame(sucesso_janela, bg="#f8f9fa", padx=20, pady=20)
         frame.pack(fill="both", expand=True)
 
-        ttk.Label(frame, text="Dados exportados com sucesso!", font=("Inter", 11), justify="center").pack(pady=10)
-        ttk.Button(frame, text="OK", command=sucesso_janela.destroy, bootstyle="success").pack()
+        ttk.Label(frame, text="Dados exportados com sucesso!",
+                  font=("Inter", 11), justify="center").pack(pady=10)
+        ttk.Button(frame, text="OK", command=sucesso_janela.destroy,
+                   bootstyle="success").pack()
 
     except Exception as e:
         # Janela de erro customizada
@@ -1170,8 +1119,10 @@ def importar_dados():
         frame = tk.Frame(sucesso_janela, bg="#f8f9fa", padx=20, pady=20)
         frame.pack(fill="both", expand=True)
 
-        ttk.Label(frame, text="Dados importados com sucesso!", font=("Inter", 11), justify="center").pack(pady=10)
-        ttk.Button(frame, text="OK", command=sucesso_janela.destroy, bootstyle="success").pack()
+        ttk.Label(frame, text="Dados importados com sucesso!",
+                  font=("Inter", 11), justify="center").pack(pady=10)
+        ttk.Button(frame, text="OK", command=sucesso_janela.destroy,
+                   bootstyle="success").pack()
 
     except Exception as e:
         # Janela de erro customizada
@@ -1194,9 +1145,11 @@ def trocar_usuario():
     main_frame = tk.Frame(janela, padx=20, pady=20)
     main_frame.pack(fill="both", expand=True)
 
-    ttk.Label(main_frame, text="Selecione o usuário:", font=("Inter", 11)).pack(pady=10)
+    ttk.Label(main_frame, text="Selecione o usuário:",
+              font=("Inter", 11)).pack(pady=10)
 
-    combo = ttk.Combobox(main_frame, state="readonly", values=usuarios, font=("Inter", 10))
+    combo = ttk.Combobox(main_frame, state="readonly",
+                         values=usuarios, font=("Inter", 10))
     combo.pack(pady=8)
 
     if usuario_atual in usuarios:
@@ -1218,11 +1171,13 @@ def trocar_usuario():
         frame = tk.Frame(sucesso_janela, bg="#f8f9fa", padx=15, pady=15)
         frame.pack(fill="both", expand=True)
 
-        ttk.Label(frame, text=mensagem, font=("Inter", 10), wraplength=260).pack(pady=15)
+        ttk.Label(frame, text=mensagem, font=(
+            "Inter", 10), wraplength=260).pack(pady=15)
         ttk.Button(
             frame,
             text="OK",
-            command=lambda: [sucesso_janela.destroy(), ao_fechar() if ao_fechar else None],
+            command=lambda: [sucesso_janela.destroy(
+            ), ao_fechar() if ao_fechar else None],
             bootstyle="success"
         ).pack()
 
@@ -1249,7 +1204,8 @@ def trocar_usuario():
             ao_fechar=lambda: atualizar_resumo() or janela.destroy()
         )
 
-    ttk.Button(main_frame, text="✓ Confirmar", command=confirmar, bootstyle="success").pack(pady=15)
+    ttk.Button(main_frame, text="✓ Confirmar", command=confirmar,
+               bootstyle="success").pack(pady=15)
     aplicar_icone(janela)
 
 def gerenciar_usuarios():
@@ -1266,10 +1222,11 @@ def gerenciar_usuarios():
     main_frame = tk.Frame(janela, padx=20, pady=20)
     main_frame.pack(fill="both", expand=True)
 
-    ttk.Label(main_frame, text="👥 Lista de Usuários", font=("Inter", 14, "bold")).pack(pady=(0, 10))
+    ttk.Label(main_frame, text="👥 Lista de Usuários",
+              font=("Inter", 14, "bold")).pack(pady=(0, 10))
 
-    lista_usuarios = tk.Listbox(main_frame, font=("Inter", 10), height=8, 
-                               selectbackground="#0d6efd", selectforeground="#ffffff")
+    lista_usuarios = tk.Listbox(main_frame, font=("Inter", 10), height=8,
+                                selectbackground="#0d6efd", selectforeground="#ffffff")
     lista_usuarios.pack(pady=10, fill="both", expand=True)
     lista_usuarios.insert(tk.END, *usuarios)
 
@@ -1277,10 +1234,12 @@ def gerenciar_usuarios():
         def salvar_novo_usuario():
             nome = entry_nome.get().strip()
             if not nome:
-                show_warning("Atenção", "Digite um nome.", parent=janela_adicionar)
+                show_warning("Atenção", "Digite um nome.",
+                             parent=janela_adicionar)
                 return
             if nome in usuarios:
-                show_warning("Atenção", "Usuário já existe.", parent=janela_adicionar)
+                show_warning("Atenção", "Usuário já existe.",
+                             parent=janela_adicionar)
                 return
 
             usuarios.append(nome)
@@ -1302,18 +1261,21 @@ def gerenciar_usuarios():
         frame = tk.Frame(janela_adicionar, padx=20, pady=20)
         frame.pack(fill="both", expand=True)
 
-        tk.Label(frame, text="Nome do usuário:", font=("Inter", 11)).pack(pady=(0, 8))
+        tk.Label(frame, text="Nome do usuário:",
+                 font=("Inter", 11)).pack(pady=(0, 8))
         entry_nome = ttk.Entry(frame, font=("Inter", 10))
         entry_nome.pack(pady=(0, 10))
         entry_nome.focus()
         entry_nome.bind("<Return>", lambda event: salvar_novo_usuario())
 
-        ttk.Button(frame, text="💾 Salvar", command=salvar_novo_usuario, bootstyle="success").pack()
+        ttk.Button(frame, text="💾 Salvar",
+                   command=salvar_novo_usuario, bootstyle="success").pack()
 
     def excluir():
         idx = lista_usuarios.curselection()
         if not idx:
-            show_warning("Atenção", "Selecione um usuário para excluir.", parent=janela)
+            show_warning(
+                "Atenção", "Selecione um usuário para excluir.", parent=janela)
             return
         usuario = lista_usuarios.get(idx)
 
@@ -1343,13 +1305,17 @@ def gerenciar_usuarios():
         botoes = ttk.Frame(frame)
         botoes.pack(pady=5)
 
-        ttk.Button(botoes, text="✓ Sim", command=confirmar_exclusao, bootstyle="danger").pack(side="left", padx=10)
-        ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
+        ttk.Button(botoes, text="✓ Sim", command=confirmar_exclusao,
+                   bootstyle="danger").pack(side="left", padx=10)
+        ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy,
+                   bootstyle="secondary").pack(side="right", padx=10)
 
     botoes = ttk.Frame(main_frame)
     botoes.pack(pady=10)
-    ttk.Button(botoes, text="➕ Adicionar", command=adicionar, bootstyle="success").pack(side="left", padx=8)
-    ttk.Button(botoes, text="🗑️ Excluir", command=excluir, bootstyle="danger").pack(side="right", padx=8)
+    ttk.Button(botoes, text="➕ Adicionar", command=adicionar,
+               bootstyle="success").pack(side="left", padx=8)
+    ttk.Button(botoes, text="🗑️ Excluir", command=excluir,
+               bootstyle="danger").pack(side="right", padx=8)
 
 # Chamada para montar o menu na inicialização
 criar_menu()
@@ -1359,6 +1325,7 @@ criar_menu()
 def ao_fechar():
     salvar_dados()
     app.destroy()
+
 
 app.protocol("WM_DELETE_WINDOW", ao_fechar)
 
@@ -1397,54 +1364,43 @@ def inicializar_mes(mes, ano):
 def calcular_saldo(chave):
     info = dados[chave]
     total_receitas = sum(info["receitas"].values())
-    total_despesas_pagas = sum(d["valor"] for d in info["despesas_fixas"] if d["status"] == "Pago")
+    total_despesas_pagas = sum(
+        d["valor"] for d in info["despesas_fixas"] if d["status"] == "Pago")
     total_gastos = sum(g["valor"] for g in info["gastos"])
     total_credito_pago = sum(c["valor"] for c in info["cartao_credito"]
                              if c["mes"] == chave[0] and c["ano"] == chave[1] and c.get("status") == "Pago")
     return total_receitas - total_gastos - total_credito_pago - total_despesas_pagas
 
 def recalcular_saldo_inicial(chave):
-    """Recalcula o saldo inicial do mês com base no mês anterior."""
-    mes, ano = chave
-    mes_ant = mes - 1 if mes > 1 else 12
-    ano_ant = ano if mes > 1 else ano - 1
-    chave_anterior = (mes_ant, ano_ant)
-
+    """Recalcula o saldo inicial do mês/ano dado, considerando o início de uso."""
     if not inicio_uso:
         return
 
-    mes_inicio, ano_inicio = inicio_uso
+    mes, ano = chave
+    inicio_mes, inicio_ano = inicio_uso
 
-    # Meses anteriores ao início não devem ter saldo nem despesas fixas
-    if (ano < ano_inicio) or (ano == ano_inicio and mes < mes_inicio):
-        if chave in dados:
-            dados[chave]["conta"] = 0.0
-            dados[chave]["despesas_fixas"] = []
-            # garante que receitas seja dict
-            if not isinstance(dados[chave].get("receitas"), dict):
-                dados[chave]["receitas"] = {}
+    # Se for antes do início de uso -> saldo zerado
+    if (ano < inicio_ano) or (ano == inicio_ano and mes < inicio_mes):
+        dados[chave]["conta"] = 0.0
         return
 
-    # Saldo inicial é o saldo final do mês anterior
+    # Se for exatamente o mês de início -> saldo inicial começa em zero
+    if (ano == inicio_ano and mes == inicio_mes):
+        dados[chave]["conta"] = 0.0
+        return
+
+    # Para meses após o início -> pega o saldo final do mês anterior
+    mes_anterior, ano_anterior = (12, ano - 1) if mes == 1 else (mes - 1, ano)
+    chave_anterior = (mes_anterior, ano_anterior)
+
     if chave_anterior in dados:
-        info_ant = dados[chave_anterior]
-
-        # garante que receitas seja dict
-        receitas_ant = info_ant.get("receitas")
-        if not isinstance(receitas_ant, dict):
-            receitas_ant = {}
-            info_ant["receitas"] = {}
-
-        total_receitas_ant = sum(receitas_ant.values())
-        total_gastos_ant = sum(g.get("valor", 0) for g in info_ant.get("gastos", []))
-        total_credito_ant = sum(c.get("valor", 0) for c in info_ant.get("cartao_credito", []))
-        total_despesas_ant = sum(d.get("valor", 0) for d in info_ant.get("despesas_fixas", []))
-
-        saldo_final_ant = info_ant.get("conta", 0.0) + total_receitas_ant - total_gastos_ant - total_credito_ant - total_despesas_ant
-
-        dados[chave]["conta"] = saldo_final_ant
+        saldo_anterior = calcular_saldo(chave_anterior)
+        dados[chave]["conta"] = saldo_anterior
+    else:
+        dados[chave]["conta"] = 0.0
 
 def recalcular_saldos_em_cadeia():
+    """Recalcula todos os saldos desde o mês de início de uso até o mês atual."""
     if not inicio_uso:
         return
 
@@ -1466,6 +1422,9 @@ def recalcular_saldos_em_cadeia():
             ano += 1
         else:
             mes += 1
+
+    # Atualiza o resumo do app para refletir os novos saldos
+    atualizar_resumo()
 
 def atualizar_resumo(*args):
     mes = combo_mes.current() + 1
@@ -1491,7 +1450,8 @@ def atualizar_resumo(*args):
     total_cartao = sum(c["valor"] for c in cartoes)
 
     saldo_inicial = info.get("saldo_inicial", 0)
-    saldo_final = saldo_inicial + total_receitas - total_despesas_fixas - total_gastos_diarios - total_cartao
+    saldo_final = saldo_inicial + total_receitas - \
+        total_despesas_fixas - total_gastos_diarios - total_cartao
 
     # Limpar frames antes de atualizar
     for frame in [scroll_frame_receitas, scroll_frame_despesas, scroll_frame_gastos, scroll_frame_credito, frame_resumo]:
@@ -1556,7 +1516,8 @@ def atualizar_resumo(*args):
         cursor="hand2"
     )
     btn_adicionar.pack(anchor="w", pady=(0, 10))
-    btn_adicionar.bind("<Button-1>", lambda e: adicionar_valor("Adicionar Receita", "receita"))
+    btn_adicionar.bind(
+        "<Button-1>", lambda e: adicionar_valor("Adicionar Receita", "receita"))
 
     # Adiciona as receitas existentes
     for nome, valor in receitas_dict.items():
@@ -1573,7 +1534,7 @@ def atualizar_resumo(*args):
         # ---------------- Regras de cor originais ----------------
         # Substitua abaixo pela sua lógica exata, se tiver mais critérios
         if valor >= 1000:        # exemplo simples de cor
-            cor = "#dc3545"
+            cor = "#28a745"
         else:
             cor = "#28a745"
         label_receita.configure(fg=cor)
@@ -1592,7 +1553,8 @@ def atualizar_resumo(*args):
         btn_excluir.bind("<Button-1>", lambda e, n=nome: excluir_receita(n))
 
     # Atualiza o total do card
-    lbl_receitas.config(text=f"R$ {locale.currency(total_receitas, grouping=True).replace('R$', '').strip()}")
+    lbl_receitas.config(
+        text=f"R$ {locale.currency(total_receitas, grouping=True).replace('R$', '').strip()}")
 
     # ------------------ Atualizar Despesas Fixas ------------------
     # Limpa os itens antigos dentro do scroll_frame
@@ -1647,30 +1609,36 @@ def atualizar_resumo(*args):
         btn_editar = tk.Label(container, text="✏️", font=("Inter", 14, "bold"),
                               fg="white", bg="#ffe6e6", cursor="hand2")
         btn_editar.pack(side="left", padx=(0, 10))
-        btn_editar.bind("<Button-1>", lambda e, i=original_idx: editar_despesa_fixa(i))
+        btn_editar.bind("<Button-1>", lambda e,
+                        i=original_idx: editar_despesa_fixa(i))
 
         # Botão excluir
         btn_excluir = tk.Label(container, text="🗑️", font=("Inter", 14, "bold"),
                                fg="#dc3545", bg="#ffe6e6", cursor="hand2")
         btn_excluir.pack(side="left", padx=(0, 10))
-        btn_excluir.bind("<Button-1>", lambda e, i=original_idx: excluir_despesa_fixa(i))
+        btn_excluir.bind("<Button-1>", lambda e,
+                         i=original_idx: excluir_despesa_fixa(i))
 
         # Label da despesa com cor dinâmica
-        label_despesa = tk.Label(container, text=texto, font=("Inter", 12, "bold"), bg="#ffe6e6")
+        label_despesa = tk.Label(container, text=texto, font=(
+            "Inter", 12, "bold"), bg="#ffe6e6")
         label_despesa.configure(fg=cor)
         label_despesa.pack(side="left", anchor="w")
 
     # Atualiza o total do card
-    lbl_despesas.config(text=f"R$ {locale.currency(total_despesas_fixas, grouping=True).replace('R$', '').strip()}")
+    lbl_despesas.config(
+        text=f"R$ {locale.currency(total_despesas_fixas, grouping=True).replace('R$', '').strip()}")
     # --- GASTOS DIÁRIOS ---
     total_gastos = sum(g["valor"] for g in gastos_diarios)
     for widget in scroll_frame_gastos.winfo_children():
         widget.destroy()
 
     # Frame clicável com lupa para abrir detalhes da seção
-    frame_gastos_clicavel = tk.Frame(scroll_frame_gastos, bg="#e6f0ff", cursor="hand2")
+    frame_gastos_clicavel = tk.Frame(
+        scroll_frame_gastos, bg="#e6f0ff", cursor="hand2")
     frame_gastos_clicavel.pack(fill="x", pady=(0, 5))
-    frame_gastos_clicavel.bind("<Button-1>", lambda e: mostrar_gastos_detalhados())
+    frame_gastos_clicavel.bind(
+        "<Button-1>", lambda e: mostrar_gastos_detalhados())
 
     # Ícone lupa
     lbl_lupa = tk.Label(
@@ -1693,7 +1661,8 @@ def atualizar_resumo(*args):
         cursor="hand2"
     )
     btn_adicionar.pack(side="left", padx=5, pady=5)
-    btn_adicionar.bind("<Button-1>", lambda e: adicionar_valor("Adicionar Gasto", "gasto"))
+    btn_adicionar.bind(
+        "<Button-1>", lambda e: adicionar_valor("Adicionar Gasto", "gasto"))
 
     # --- CARTÃO DE CRÉDITO ---
     gastos_por_cartao = {}
@@ -1716,9 +1685,11 @@ def atualizar_resumo(*args):
         widget.destroy()
 
     # Frame clicável com lupa para abrir detalhes do cartão
-    frame_credito_clicavel = tk.Frame(scroll_frame_credito, bg="#f2e6ff", cursor="hand2")
+    frame_credito_clicavel = tk.Frame(
+        scroll_frame_credito, bg="#f2e6ff", cursor="hand2")
     frame_credito_clicavel.pack(fill="x", pady=(0, 5))
-    frame_credito_clicavel.bind("<Button-1>", lambda e: abrir_cartao_credito_detalhado())
+    frame_credito_clicavel.bind(
+        "<Button-1>", lambda e: abrir_cartao_credito_detalhado())
 
     # Ícone lupa
     lbl_lupa_credito = tk.Label(
@@ -1729,7 +1700,8 @@ def atualizar_resumo(*args):
         cursor="hand2"
     )
     lbl_lupa_credito.pack(side="left", padx=5, pady=5)
-    lbl_lupa_credito.bind("<Button-1>", lambda e: abrir_cartao_credito_detalhado())
+    lbl_lupa_credito.bind(
+        "<Button-1>", lambda e: abrir_cartao_credito_detalhado())
 
     # Botão adicionar
     btn_adicionar = tk.Label(
@@ -1743,43 +1715,71 @@ def atualizar_resumo(*args):
     btn_adicionar.pack(side="left", padx=5, pady=5)
     btn_adicionar.bind("<Button-1>", lambda e: adicionar_cartao_credito())
 
-
     # --- RESUMO ---
-    saldo_inicial = info.get("conta", 0)
-    total_pagas = sum(d["valor"] for d in despesas_fixas if d.get("status") == "Pago")
-    total_todas = sum(d["valor"] for d in despesas_fixas)
+    # Saldo final do mês anterior
+    if (mes, ano) == inicio_uso:
+        saldo_final_ant = 0
+    else:
+        mes_ant, ano_ant = (12, ano - 1) if mes == 1 else (mes - 1, ano)
+        chave_ant = (mes_ant, ano_ant)
+    
+        if chave_ant in dados:
+            info_ant = dados[chave_ant]
+            receitas_ant = sum(info_ant.get("receitas", {}).values())
+            despesas_ant = sum(d["valor"] for d in info_ant.get("despesas_fixas", []))
+            gastos_ant = sum(g["valor"] for g in info_ant.get("gastos", []))
+            cartao_ant = sum(c["valor"] for c in info_ant.get("cartao_credito", []))
+            saldo_inicial_ant = info_ant.get("saldo_inicial", 0)
+            saldo_final_ant = saldo_inicial_ant + receitas_ant - despesas_ant - gastos_ant - cartao_ant
+        else:
+            saldo_final_ant = 0
 
-    saldo_atual = saldo_inicial + total_receitas - total_gastos - total_cartao_pago - total_pagas
-    saldo_final = saldo_inicial + total_receitas - total_gastos - total_cartao_todos - total_todas
+    # Despesas pagas
+    total_pagas = sum(d["valor"] for d in despesas_fixas if d.get("status") == "Pago") \
+                + sum(c["valor"] for c in cartoes if c.get("status") == "Pago") \
+                + sum(g["valor"] for g in gastos_diarios)
 
-    cor_saldo_atual = "#0d6efd" if saldo_atual >= 0 else "#dc3545"
+    # Todas as despesas
+    total_todas = sum(d["valor"] for d in despesas_fixas) \
+                + sum(c["valor"] for c in cartoes) \
+                + sum(g["valor"] for g in gastos_diarios)
+
+    # Calcula saldo inicial e saldo final
+    saldo_inicial = saldo_final_ant + total_receitas - total_pagas
+    saldo_final = saldo_final_ant + total_receitas - total_todas
+
+    # Define cores
+    cor_saldo_atual = "#0d6efd" if saldo_inicial >= 0 else "#dc3545"
     cor_saldo_final = "#0d6efd" if saldo_final >= 0 else "#dc3545"
 
-    resumo_container = tk.Frame(frame_resumo, bg="#d9e3f1", padx=15, pady=15)
-    resumo_container.pack(fill="x", pady=5)
+    resumo_container = tk.Frame(frame_resumo, bg="#d9e3f1", padx=0, pady=0)
+    resumo_container.pack(fill="x", pady=0)
 
     label_saldo_atual = tk.Label(resumo_container,
-                                 text=f"💰 Saldo Atual: {locale.currency(saldo_atual, grouping=True)}",
-                                 font=("Inter", 12, "bold"),
-                                 bg="#d9e3f1")
+                                text=f"💰 Saldo Atual: {locale.currency(saldo_inicial, grouping=True)}",
+                                font=("Inter", 12, "bold"),
+                                bg="#d9e3f1")
     label_saldo_atual.configure(fg=cor_saldo_atual)
     label_saldo_atual.pack(anchor="w")
 
     label_saldo_final = tk.Label(resumo_container,
-                                 text=f"📊 Saldo Final: {locale.currency(saldo_final, grouping=True)}",
-                                 font=("Inter", 12, "bold"),
-                                 bg="#d9e3f1")
+                                text=f"📊 Saldo Final: {locale.currency(saldo_final, grouping=True)}",
+                                font=("Inter", 12, "bold"),
+                                bg="#d9e3f1")
     label_saldo_final.configure(fg=cor_saldo_final)
-    label_saldo_final.pack(anchor="w", pady=(5, 0))
+    label_saldo_final.pack(anchor="w", pady=(2.5, 0))
+
     # --- Gastos finais (diários + cartão) por tipo ---
     gastos_por_tipo = {}
     for g in gastos_diarios:
         tipo = g.get("tipo", "Outros")
-        gastos_por_tipo[tipo] = gastos_por_tipo.get(tipo, 0) + g.get("valor", 0)
+        gastos_por_tipo[tipo] = gastos_por_tipo.get(
+            tipo, 0) + g.get("valor", 0)
 
     for c in cartoes:
         tipo = c.get("tipo", "Outros")
-        gastos_por_tipo[tipo] = gastos_por_tipo.get(tipo, 0) + c.get("valor", 0)
+        gastos_por_tipo[tipo] = gastos_por_tipo.get(
+            tipo, 0) + c.get("valor", 0)
 
     label_gastos_tipo = tk.Label(
         resumo_container,
@@ -1788,12 +1788,14 @@ def atualizar_resumo(*args):
         bg="#d9e3f1",
         fg="#0d6efd"
     )
-    label_gastos_tipo.pack(anchor="w", pady=(15, 5))
+    label_gastos_tipo.pack(anchor="w", pady=(5, 5))
 
     # Frame com altura fixa para limitar o espaço
-    frame_gastos_tipo = tk.Frame(resumo_container, bg="#d9e3f1", height=60)  # altura fixa
+    frame_gastos_tipo = tk.Frame(
+        resumo_container, bg="#d9e3f1", height=60)  # altura fixa
     frame_gastos_tipo.pack(fill="x", anchor="w")
-    frame_gastos_tipo.pack_propagate(False)  # impede que o frame aumente automaticamente
+    # impede que o frame aumente automaticamente
+    frame_gastos_tipo.pack_propagate(False)
 
     tipos = sorted(gastos_por_tipo.items(), key=lambda x: x[0])
     max_por_linha = (len(tipos) + 1) // 2  # até 2 linhas
@@ -1815,10 +1817,14 @@ def atualizar_resumo(*args):
             lbl.pack(side="left", anchor="w")
 
     # Atualiza os totais nos cards
-    lbl_receitas.config(text=f"R$ {locale.currency(total_receitas, grouping=True).replace('R$', '').strip()}")
-    lbl_despesas.config(text=f"R$ {locale.currency(total_despesas_fixas, grouping=True).replace('R$', '').strip()}")
-    lbl_gastos.config(text=f"R$ {locale.currency(total_gastos_diarios, grouping=True).replace('R$', '').strip()}")
-    lbl_credito.config(text=f"R$ {locale.currency(total_cartao, grouping=True).replace('R$', '').strip()}")
+    lbl_receitas.config(
+        text=f"R$ {locale.currency(total_receitas, grouping=True).replace('R$', '').strip()}")
+    lbl_despesas.config(
+        text=f"R$ {locale.currency(total_despesas_fixas, grouping=True).replace('R$', '').strip()}")
+    lbl_gastos.config(
+        text=f"R$ {locale.currency(total_gastos_diarios, grouping=True).replace('R$', '').strip()}")
+    lbl_credito.config(
+        text=f"R$ {locale.currency(total_cartao, grouping=True).replace('R$', '').strip()}")
 
 def excluir_despesa_fixa(idx):
     mes = combo_mes.current() + 1
@@ -1866,8 +1872,10 @@ def excluir_despesa_fixa(idx):
 
     botoes = tk.Frame(frame)
     botoes.pack()
-    ttk.Button(botoes, text="✓ Sim", command=confirmar, bootstyle="danger").pack(side="left", padx=10)
-    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
+    ttk.Button(botoes, text="✓ Sim", command=confirmar,
+               bootstyle="danger").pack(side="left", padx=10)
+    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy,
+               bootstyle="secondary").pack(side="right", padx=10)
 
     # --- GASTOS DIÁRIOS ---
     total_gastos = sum(g["valor"] for g in gastos_diarios)
@@ -1930,11 +1938,13 @@ def excluir_despesa_fixa(idx):
     gastos_por_tipo = {}
     for g in gastos_diarios:
         tipo = g.get("tipo", "Outros")
-        gastos_por_tipo[tipo] = gastos_por_tipo.get(tipo, 0) + g.get("valor", 0)
+        gastos_por_tipo[tipo] = gastos_por_tipo.get(
+            tipo, 0) + g.get("valor", 0)
 
     for c in cartoes:
         tipo = c.get("tipo", "Outros")
-        gastos_por_tipo[tipo] = gastos_por_tipo.get(tipo, 0) + c.get("valor", 0)
+        gastos_por_tipo[tipo] = gastos_por_tipo.get(
+            tipo, 0) + c.get("valor", 0)
 
     label_gastos_tipo = tk.Label(
         resumo_container,
@@ -1994,9 +2004,9 @@ def mostrar_erro_toplevel(mensagem, parent):
     erro_frame.pack(fill="both", expand=True)
 
     ttk.Label(erro_frame, text=mensagem, foreground="#dc3545", wraplength=320,
-             font=("Inter", 10)).pack(pady=10)
-    ttk.Button(erro_frame, text="OK", command=erro_janela.destroy, 
-              bootstyle="danger").pack()
+              font=("Inter", 10)).pack(pady=10)
+    ttk.Button(erro_frame, text="OK", command=erro_janela.destroy,
+               bootstyle="danger").pack()
 
     erro_janela.update_idletasks()
     w = erro_janela.winfo_width()
@@ -2017,7 +2027,8 @@ def _renderizar_gastos(container, recarregar_callback=None, janela_detalhes=None
     # Ordena os gastos por dia, tipo e descrição
     gastos_ordenados = sorted(
         enumerate(info["gastos"]),
-        key=lambda x: (x[1].get("dia", 99), x[1].get("tipo", ""), x[1].get("descricao", ""))
+        key=lambda x: (x[1].get("dia", 99), x[1].get(
+            "tipo", ""), x[1].get("descricao", ""))
     )
 
     # Agrupa por dia
@@ -2096,7 +2107,8 @@ def _renderizar_gastos(container, recarregar_callback=None, janela_detalhes=None
                 btn_editar.pack(side="left", padx=10)
                 btn_editar.bind(
                     "<Button-1>",
-                    lambda e, i=idx: editar_gasto_diario(i, callback_apos_salvar=recarregar_callback)
+                    lambda e, i=idx: editar_gasto_diario(
+                        i, callback_apos_salvar=recarregar_callback)
                 )
 
                 # Botão excluir
@@ -2142,7 +2154,7 @@ def mostrar_gastos_detalhados():
     header_frame = tk.Frame(nova_janela, height=60)
     header_frame.pack(side="top", fill="x", pady=(0, 5))
     header_frame.pack_propagate(False)
-    
+
     frame_centro = ttk.Frame(header_frame)
     frame_centro.pack(expand=True)
 
@@ -2172,7 +2184,8 @@ def mostrar_gastos_detalhados():
 
     # Scroll
     canvas = tk.Canvas(nova_janela, highlightthickness=0)
-    scrollbar = ttk.Scrollbar(nova_janela, orient="vertical", command=canvas.yview)
+    scrollbar = ttk.Scrollbar(
+        nova_janela, orient="vertical", command=canvas.yview)
     frame_container = ttk.Frame(canvas)
 
     canvas.create_window((0, 0), window=frame_container, anchor="nw")
@@ -2249,18 +2262,22 @@ def _renderizar_gastos_cartao(scroll_frame, parent_janela=None, recarregar_callb
         x0, y0, x1, y1 = 2, 2, 98, 30
 
         def ret_arredondado(c, x0, y0, x1, y1, r, fill):
-            c.create_arc(x0, y0, x0+2*r, y0+2*r, start=90, extent=90, fill=fill, outline=fill)
-            c.create_arc(x1-2*r, y0, x1, y0+2*r, start=0, extent=90, fill=fill, outline=fill)
-            c.create_arc(x0, y1-2*r, x0+2*r, y1, start=180, extent=90, fill=fill, outline=fill)
-            c.create_arc(x1-2*r, y1-2*r, x1, y1, start=270, extent=90, fill=fill, outline=fill)
+            c.create_arc(x0, y0, x0+2*r, y0+2*r, start=90,
+                         extent=90, fill=fill, outline=fill)
+            c.create_arc(x1-2*r, y0, x1, y0+2*r, start=0,
+                         extent=90, fill=fill, outline=fill)
+            c.create_arc(x0, y1-2*r, x0+2*r, y1, start=180,
+                         extent=90, fill=fill, outline=fill)
+            c.create_arc(x1-2*r, y1-2*r, x1, y1, start=270,
+                         extent=90, fill=fill, outline=fill)
             c.create_rectangle(x0+r, y0, x1-r, y1, fill=fill, outline=fill)
             c.create_rectangle(x0, y0+r, x1, y1-r, fill=fill, outline=fill)
 
         def desenhar(cor):
             canvas.delete("all")
             ret_arredondado(canvas, x0, y0, x1, y1, raio, cor)
-            canvas.create_text((x0+x1)//2, (y0+y1)//2, text=texto, fill="white", 
-                             font=("Inter", 10, "bold"))
+            canvas.create_text((x0+x1)//2, (y0+y1)//2, text=texto, fill="white",
+                               font=("Inter", 10, "bold"))
 
         desenhar(cor_fundo)
 
@@ -2303,25 +2320,31 @@ def _renderizar_gastos_cartao(scroll_frame, parent_janela=None, recarregar_callb
         chave_atual = get_chave(mes_atual, ano_atual)
         info_atual = dados[chave_atual]
 
-        lista_gastos = [g for g in info_atual["cartao_credito"] if g["cartao"] == nome_cartao_local]
+        lista_gastos = [g for g in info_atual["cartao_credito"]
+                        if g["cartao"] == nome_cartao_local]
 
-        novo_status = "Aberto" if all(g.get("status") == "Pago" for g in lista_gastos) else "Pago"
+        novo_status = "Aberto" if all(
+            g.get("status") == "Pago" for g in lista_gastos) else "Pago"
 
         for g in lista_gastos:
             g["status"] = novo_status
 
         salvar_dados()
         atualizar_resumo()
-        _renderizar_gastos_cartao(scroll_frame, parent_janela=parent_janela, recarregar_callback=recarregar_callback)
+        _renderizar_gastos_cartao(
+            scroll_frame, parent_janela=parent_janela, recarregar_callback=recarregar_callback)
 
     def recarregar_gastos():
-        _renderizar_gastos_cartao(scroll_frame, parent_janela=parent_janela, recarregar_callback=recarregar_callback)
+        _renderizar_gastos_cartao(
+            scroll_frame, parent_janela=parent_janela, recarregar_callback=recarregar_callback)
 
     for nome_cartao in sorted(gastos_por_cartao):
-        lista = sorted(gastos_por_cartao[nome_cartao], key=lambda x: (x["ano"], x["mes"], x["dia"]))
+        lista = sorted(gastos_por_cartao[nome_cartao], key=lambda x: (
+            x["ano"], x["mes"], x["dia"]))
         total_cartao = sum(g["valor"] for g in lista)
 
-        status_cartao = "Pago" if all(g.get("status") == "Pago" for g in lista) else "Aberto"
+        status_cartao = "Pago" if all(
+            g.get("status") == "Pago" for g in lista) else "Aberto"
 
         container_cartao = ttk.Frame(scroll_frame)
         container_cartao.pack(fill="x", padx=12, pady=(10, 0))
@@ -2340,8 +2363,9 @@ def _renderizar_gastos_cartao(scroll_frame, parent_janela=None, recarregar_callb
         )
         label.grid(row=0, column=0, sticky="we")
 
-        badge = criar_badge_status(frame_titulo, status_cartao, partial(alternar_status_cartao, nome_cartao))
-        badge.grid(row=0, column=1, sticky="e", padx=(2,0))
+        badge = criar_badge_status(frame_titulo, status_cartao, partial(
+            alternar_status_cartao, nome_cartao))
+        badge.grid(row=0, column=1, sticky="e", padx=(2, 0))
 
         label.bind("<Enter>", lambda e: label.config(foreground="#0a58ca"))
         label.bind("<Leave>", lambda e: label.config(foreground="#0d6efd"))
@@ -2350,11 +2374,13 @@ def _renderizar_gastos_cartao(scroll_frame, parent_janela=None, recarregar_callb
 
         label.bind(
             "<Button-1>",
-            lambda e, f=frame_detalhes, l=label, n=nome_cartao, t=total_cartao: toggle_detalhes(f, l, n, t)
+            lambda e, f=frame_detalhes, l=label, n=nome_cartao, t=total_cartao: toggle_detalhes(
+                f, l, n, t)
         )
 
         for c in lista:
-            parcela = "Fixo" if c.get("fixo") else (f"Parcela {c['parcela_atual']}/{c['total_parcelas']}" if c["total_parcelas"] > 1 else "À vista")
+            parcela = "Fixo" if c.get("fixo") else (
+                f"Parcela {c['parcela_atual']}/{c['total_parcelas']}" if c["total_parcelas"] > 1 else "À vista")
             data = f"{c['dia']:02d}/{c['mes']:02d}/{c['ano']}"
             tipo = c.get("tipo", "Indefinido")
             valor_fmt = locale.currency(c["valor"], grouping=True)
@@ -2363,15 +2389,20 @@ def _renderizar_gastos_cartao(scroll_frame, parent_janela=None, recarregar_callb
             container = ttk.Frame(frame_detalhes)
             container.pack(anchor="w", fill="x", padx=12, pady=3)
 
-            ttk.Label(container, text=texto, font=("Inter", 10, "bold")).pack(side="left")
+            ttk.Label(container, text=texto, font=(
+                "Inter", 10, "bold")).pack(side="left")
 
-            btn_editar = ttk.Label(container, text="✏️", font=("Inter", 12), foreground="#0d6efd", cursor="hand2")
+            btn_editar = ttk.Label(container, text="✏️", font=(
+                "Inter", 12), foreground="#0d6efd", cursor="hand2")
             btn_editar.pack(side="left", padx=10)
-            btn_editar.bind("<Button-1>", partial(lambda e, gasto: editar_gasto_cartao(gasto, callback_apos_salvar=recarregar_callback), gasto=c))
+            btn_editar.bind("<Button-1>", partial(lambda e, gasto: editar_gasto_cartao(
+                gasto, callback_apos_salvar=recarregar_callback), gasto=c))
 
-            btn_excluir = ttk.Label(container, text="🗑️", font=("Inter", 12), foreground="#dc3545", cursor="hand2")
+            btn_excluir = ttk.Label(container, text="🗑️", font=(
+                "Inter", 12), foreground="#dc3545", cursor="hand2")
             btn_excluir.pack(side="left")
-            btn_excluir.bind("<Button-1>", partial(lambda e, gasto: excluir_gasto_cartao(gasto, parent_janela=parent_janela, callback_apos_excluir=recarregar_gastos), gasto=c))
+            btn_excluir.bind("<Button-1>", partial(lambda e, gasto: excluir_gasto_cartao(
+                gasto, parent_janela=parent_janela, callback_apos_excluir=recarregar_gastos), gasto=c))
 
         if estado_expansao_cartoes.get(nome_cartao):
             frame_detalhes.pack(fill="x", padx=25, pady=(0, 12))
@@ -2394,7 +2425,8 @@ def abrir_cartao_credito_detalhado():
     btn_adicionar = ttk.Button(
         header_frame,
         text="➕ Adicionar Gasto no Cartão",
-        command=lambda: adicionar_cartao_credito(callback_apos_salvar=recarregar_gastos),
+        command=lambda: adicionar_cartao_credito(
+            callback_apos_salvar=recarregar_gastos),
         bootstyle="success"
     )
     btn_adicionar.pack(pady=15)
@@ -2403,7 +2435,8 @@ def abrir_cartao_credito_detalhado():
     container.pack(fill="both", expand=True)
 
     canvas = tk.Canvas(container, highlightthickness=0)
-    scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+    scrollbar = ttk.Scrollbar(
+        container, orient="vertical", command=canvas.yview)
     scroll_frame = ttk.Frame(canvas)
 
     # Atualiza a região de rolagem sempre que o conteúdo mudar
@@ -2420,7 +2453,8 @@ def abrir_cartao_credito_detalhado():
 
     # Função que recarrega os gastos na janela
     def recarregar_gastos():
-        _renderizar_gastos_cartao(scroll_frame, parent_janela=janela_gastos_detalhados, recarregar_callback=recarregar_gastos)
+        _renderizar_gastos_cartao(
+            scroll_frame, parent_janela=janela_gastos_detalhados, recarregar_callback=recarregar_gastos)
 
     # Funções para rolagem com mouse wheel compatível Windows/Linux/Mac
     def _on_mousewheel(event):
@@ -2449,6 +2483,7 @@ def abrir_cartao_credito_detalhado():
     aplicar_icone(janela_gastos_detalhados)
 
 # ----------------------Funções adicionar-------------------------------
+
 def adicionar_despesa_fixa():
     """Adiciona uma nova despesa fixa no mês atualmente selecionado e replica nos próximos meses."""
     mes_atual = combo_mes.current() + 1
@@ -2479,7 +2514,8 @@ def adicionar_despesa_fixa():
     entrada_valor = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_valor.pack(pady=5)
 
-    ttk.Label(main_frame, text="Dia de vencimento (1 a 31):", font=("Inter", 11)).pack(pady=8)
+    ttk.Label(main_frame, text="Dia de vencimento (1 a 31):",
+              font=("Inter", 11)).pack(pady=8)
     entrada_venc = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_venc.pack(pady=5)
 
@@ -2520,7 +2556,8 @@ def adicionar_despesa_fixa():
         contas_fixas_modelo.append(nova_despesa.copy())
 
         # Adiciona no mês atual
-        dados[(mes_atual, ano_atual)]["despesas_fixas"].append(nova_despesa.copy())
+        dados[(mes_atual, ano_atual)]["despesas_fixas"].append(
+            nova_despesa.copy())
 
         # Replicar nos meses futuros
         for chave in dados:
@@ -2535,7 +2572,8 @@ def adicionar_despesa_fixa():
         atualizar_resumo()
         janela.destroy()
 
-    ttk.Button(main_frame, text="💾 Salvar", command=salvar, bootstyle="success").pack(pady=20)
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar,
+               bootstyle="success").pack(pady=20)
     janela.bind("<Return>", lambda event: salvar())
 
 def adicionar_cartao_credito(callback_apos_salvar=None):
@@ -2554,7 +2592,8 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
         ttk.Label(frame, text="Nenhum cartão cadastrado. Cadastre um cartão primeiro.",
                   foreground="#dc3545", wraplength=320, font=("Inter", 10),
                   justify="center", background="#f8f9fa").pack(pady=10)
-        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+        ttk.Button(frame, text="OK", command=erro_janela.destroy,
+                   bootstyle="danger").pack()
         return
 
     mes = combo_mes.current() + 1
@@ -2575,14 +2614,16 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
     main_frame = tk.Frame(janela, padx=25, pady=25)
     main_frame.pack(fill="both", expand=True)
 
-    ultimo_cartao = ultima_selecao_cartao if ultima_selecao_cartao in [c["nome"] for c in cartoes] else cartoes[0]["nome"]
+    ultimo_cartao = ultima_selecao_cartao if ultima_selecao_cartao in [
+        c["nome"] for c in cartoes] else cartoes[0]["nome"]
     ultimo_tipo = ultima_selecao_tipo if ultima_selecao_tipo in tipos_gasto else tipos_gasto[0]
 
     ttk.Label(main_frame, text="Descrição:", font=("Inter", 11)).pack(pady=5)
     entrada_desc = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_desc.pack(pady=5)
 
-    ttk.Label(main_frame, text="Valor Total (R$):", font=("Inter", 11)).pack(pady=5)
+    ttk.Label(main_frame, text="Valor Total (R$):",
+              font=("Inter", 11)).pack(pady=5)
     entrada_valor = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_valor.pack(pady=5)
 
@@ -2591,23 +2632,28 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
     entrada_parcelas.insert(0, "1")
     entrada_parcelas.pack(pady=5)
 
-    ttk.Label(main_frame, text="Data do Gasto (DDMMAAAA):", font=("Inter", 11)).pack(pady=5)
+    ttk.Label(main_frame, text="Data do Gasto (DDMMAAAA):",
+              font=("Inter", 11)).pack(pady=5)
     entrada_data = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_data.pack(pady=5)
 
-    ttk.Label(main_frame, text="Tipo de Gasto:", font=("Inter", 11)).pack(pady=5)
-    combo_tipo = ttk.Combobox(main_frame, values=tipos_gasto, state="readonly", font=("Inter", 10))
+    ttk.Label(main_frame, text="Tipo de Gasto:",
+              font=("Inter", 11)).pack(pady=5)
+    combo_tipo = ttk.Combobox(
+        main_frame, values=tipos_gasto, state="readonly", font=("Inter", 10))
     combo_tipo.set(ultimo_tipo)
     combo_tipo.pack(pady=5)
 
     ttk.Label(main_frame, text="Cartão:", font=("Inter", 11)).pack(pady=5)
     nomes_cartoes = [c["nome"] for c in cartoes]
-    cartao_combo = ttk.Combobox(main_frame, values=nomes_cartoes, state="readonly", font=("Inter", 10))
+    cartao_combo = ttk.Combobox(
+        main_frame, values=nomes_cartoes, state="readonly", font=("Inter", 10))
     cartao_combo.set(ultimo_cartao)
     cartao_combo.pack(pady=5)
 
     fixo_var = tk.BooleanVar()
-    check_fixo = ttk.Checkbutton(main_frame, text="Gasto Fixo (repetir todo mês)", variable=fixo_var)
+    check_fixo = ttk.Checkbutton(
+        main_frame, text="Gasto Fixo (repetir todo mês)", variable=fixo_var)
     check_fixo.pack(pady=8)
 
     # ---------------- Subfunção de erro com ícone ----------------
@@ -2623,7 +2669,8 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text=mensagem, foreground="#dc3545", wraplength=320,
                   font=("Inter", 10), justify="center", background="#f8f9fa").pack(pady=10)
-        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+        ttk.Button(frame, text="OK", command=erro_janela.destroy,
+                   bootstyle="danger").pack()
         erro_janela.update_idletasks()
         w = erro_janela.winfo_width()
         h = erro_janela.winfo_height()
@@ -2658,7 +2705,8 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
         try:
             valor = float(valor_raw.replace(",", "."))
             parcelas = int(parcelas_raw)
-            cartao_info = next((c for c in cartoes if c["nome"] == cartao_nome), None)
+            cartao_info = next(
+                (c for c in cartoes if c["nome"] == cartao_nome), None)
             if not cartao_info:
                 mostrar_erro("Cartão selecionado não encontrado.")
                 return
@@ -2670,7 +2718,8 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
             if parcelas < 1:
                 raise ValueError("Parcelas devem ser >= 1.")
             if fechamento is None:
-                raise ValueError(f"Cartão '{cartao}' não tem dia de fechamento cadastrado.")
+                raise ValueError(
+                    f"Cartão '{cartao}' não tem dia de fechamento cadastrado.")
 
         except Exception as e:
             mostrar_erro(f"Dados inválidos: {str(e)}")
@@ -2715,7 +2764,8 @@ def adicionar_cartao_credito(callback_apos_salvar=None):
             callback_apos_salvar()
         janela.destroy()
 
-    ttk.Button(main_frame, text="💾 Salvar", command=salvar, bootstyle="success").pack(pady=20)
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar,
+               bootstyle="success").pack(pady=20)
     janela.bind("<Return>", salvar)
 
 def adicionar_valor(titulo, tipo, callback_apos_salvar=None):
@@ -2748,12 +2798,15 @@ def adicionar_valor(titulo, tipo, callback_apos_salvar=None):
     entrada_valor.pack(pady=5)
 
     if tipo == "gasto":
-        ttk.Label(main_frame, text="Dia do Gasto (1-31):", font=("Inter", 11)).pack(pady=5)
+        ttk.Label(main_frame, text="Dia do Gasto (1-31):",
+                  font=("Inter", 11)).pack(pady=5)
         entrada_dia = ttk.Entry(main_frame, font=("Inter", 10))
         entrada_dia.pack(pady=5)
 
-        ttk.Label(main_frame, text="Tipo de Gasto:", font=("Inter", 11)).pack(pady=5)
-        tipo_gasto_combo = ttk.Combobox(main_frame, state="readonly", font=("Inter", 10))
+        ttk.Label(main_frame, text="Tipo de Gasto:",
+                  font=("Inter", 11)).pack(pady=5)
+        tipo_gasto_combo = ttk.Combobox(
+            main_frame, state="readonly", font=("Inter", 10))
         tipo_gasto_combo.pack(pady=5)
         atualizar_tipo_gasto_combo(tipo_gasto_combo)
 
@@ -2771,7 +2824,8 @@ def adicionar_valor(titulo, tipo, callback_apos_salvar=None):
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text=mensagem, foreground="#dc3545", wraplength=320,
                   font=("Inter", 10), justify="center", background="#f8f9fa").pack(pady=10)
-        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+        ttk.Button(frame, text="OK", command=erro_janela.destroy,
+                   bootstyle="danger").pack()
         erro_janela.update_idletasks()
         w = erro_janela.winfo_width()
         h = erro_janela.winfo_height()
@@ -2797,14 +2851,16 @@ def adicionar_valor(titulo, tipo, callback_apos_salvar=None):
             return
 
         if tipo == "receita":
-            dados[chave]["receitas"][desc] = dados[chave]["receitas"].get(desc, 0.0) + valor
+            dados[chave]["receitas"][desc] = dados[chave]["receitas"].get(
+                desc, 0.0) + valor
         else:
             try:
                 dia = int(entrada_dia.get())
                 if dia < 1 or dia > 31:
                     raise ValueError
             except:
-                mostrar_erro_toplevel("Dia inválido. Informe um número entre 1 e 31.")
+                mostrar_erro_toplevel(
+                    "Dia inválido. Informe um número entre 1 e 31.")
                 return
             tipo_gasto_val = tipo_gasto_combo.get()
             if not tipo_gasto_val:
@@ -2824,10 +2880,12 @@ def adicionar_valor(titulo, tipo, callback_apos_salvar=None):
             callback_apos_salvar()
         janela.destroy()
 
-    ttk.Button(main_frame, text="💾 Salvar", command=salvar, bootstyle="success").pack(pady=15)
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar,
+               bootstyle="success").pack(pady=15)
     janela.bind("<Return>", lambda event: salvar())
 
 # ----------------------Funções editar----------------------------------
+
 def editar_tipos_gastos(janela_anterior):
     global tipos_gasto
     janela_anterior.destroy()
@@ -2845,15 +2903,17 @@ def editar_tipos_gastos(janela_anterior):
     main_frame = tk.Frame(janela, padx=25, pady=25)
     main_frame.pack(fill="both", expand=True)
 
-    ttk.Label(main_frame, text="📂 Tipos de Gastos Atuais:", font=("Inter", 13, "bold")).pack(pady=(0, 10))
-    
+    ttk.Label(main_frame, text="📂 Tipos de Gastos Atuais:",
+              font=("Inter", 13, "bold")).pack(pady=(0, 10))
+
     lista_tipos = tk.Listbox(main_frame, height=12, font=("Inter", 10),
                              selectbackground="#0d6efd", selectforeground="#ffffff")
     for tipo in tipos_gasto:
         lista_tipos.insert(tk.END, tipo)
     lista_tipos.pack(pady=8, fill="both", expand=True)
 
-    ttk.Label(main_frame, text="Novo Tipo de Gasto ou Edição:", font=("Inter", 11)).pack(pady=(15, 5))
+    ttk.Label(main_frame, text="Novo Tipo de Gasto ou Edição:",
+              font=("Inter", 11)).pack(pady=(15, 5))
     entrada_novo_tipo = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_novo_tipo.pack(pady=8, fill="x")
 
@@ -2874,8 +2934,10 @@ def editar_tipos_gastos(janela_anterior):
         frame = tk.Frame(aviso_janela, bg="#f8f9fa", padx=20, pady=20)
         frame.pack(fill="both", expand=True)
 
-        ttk.Label(frame, text=mensagem, font=("Inter", 11), justify="center").pack(pady=10)
-        ttk.Button(frame, text="OK", command=aviso_janela.destroy, bootstyle="secondary").pack()
+        ttk.Label(frame, text=mensagem, font=("Inter", 11),
+                  justify="center").pack(pady=10)
+        ttk.Button(frame, text="OK", command=aviso_janela.destroy,
+                   bootstyle="secondary").pack()
 
     # ---------------- Funções dos botões ----------------
     def adicionar_tipo():
@@ -2924,8 +2986,10 @@ def editar_tipos_gastos(janela_anterior):
             salvar_dados()
             confirm_janela.destroy()
 
-        ttk.Button(botoes, text="✓ Sim", command=confirmar, bootstyle="danger").pack(side="left", padx=10)
-        ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
+        ttk.Button(botoes, text="✓ Sim", command=confirmar,
+                   bootstyle="danger").pack(side="left", padx=10)
+        ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy,
+                   bootstyle="secondary").pack(side="right", padx=10)
 
     def editar_tipo():
         selecionado = lista_tipos.curselection()
@@ -2957,9 +3021,12 @@ def editar_tipos_gastos(janela_anterior):
     botoes_frame = tk.Frame(main_frame)
     botoes_frame.pack(pady=15)
 
-    ttk.Button(botoes_frame, text="➕ Adicionar Tipo", command=adicionar_tipo, bootstyle="success").pack(pady=5, fill="x")
-    ttk.Button(botoes_frame, text="🗑️ Excluir Tipo Selecionado", command=excluir_tipo, bootstyle="danger").pack(pady=5, fill="x")
-    ttk.Button(botoes_frame, text="✏️ Editar Tipo Selecionado", command=editar_tipo, bootstyle="primary").pack(pady=5, fill="x")
+    ttk.Button(botoes_frame, text="➕ Adicionar Tipo",
+               command=adicionar_tipo, bootstyle="success").pack(pady=5, fill="x")
+    ttk.Button(botoes_frame, text="🗑️ Excluir Tipo Selecionado",
+               command=excluir_tipo, bootstyle="danger").pack(pady=5, fill="x")
+    ttk.Button(botoes_frame, text="✏️ Editar Tipo Selecionado",
+               command=editar_tipo, bootstyle="primary").pack(pady=5, fill="x")
 
 def editar_despesa_fixa(indice):
     mes = combo_mes.current() + 1
@@ -2988,20 +3055,25 @@ def editar_despesa_fixa(indice):
 
     janela.bind("<Return>", lambda event: salvar_alteracoes())
 
-    ttk.Label(main_frame, text="Descrição:", font=("Inter", 11)).pack(pady=(10, 0))
-    ttk.Label(main_frame, text=d["descricao"], font=("Inter", 10, "bold")).pack()
+    ttk.Label(main_frame, text="Descrição:",
+              font=("Inter", 11)).pack(pady=(10, 0))
+    ttk.Label(main_frame, text=d["descricao"],
+              font=("Inter", 10, "bold")).pack()
 
-    ttk.Label(main_frame, text="Valor (R$):", font=("Inter", 11)).pack(pady=(15, 0))
+    ttk.Label(main_frame, text="Valor (R$):",
+              font=("Inter", 11)).pack(pady=(15, 0))
     valor_entry = ttk.Entry(main_frame, font=("Inter", 10))
     valor_entry.insert(0, f"{d['valor']:.2f}".replace(".", ","))
     valor_entry.pack(pady=5)
 
-    ttk.Label(main_frame, text="Vencimento (dia):", font=("Inter", 11)).pack(pady=(15, 0))
+    ttk.Label(main_frame, text="Vencimento (dia):",
+              font=("Inter", 11)).pack(pady=(15, 0))
     venc_entry = ttk.Entry(main_frame, font=("Inter", 10))
     venc_entry.insert(0, str(d.get("vencimento", "")))
     venc_entry.pack(pady=5)
 
-    status_btn = ttk.Button(main_frame, text=f"📋 Alternar Status (Atual: {d['status']})", bootstyle="info")
+    status_btn = ttk.Button(
+        main_frame, text=f"📋 Alternar Status (Atual: {d['status']})", bootstyle="info")
 
     def mostrar_erro(msg):
         erro_janela = tk.Toplevel(janela)
@@ -3012,8 +3084,10 @@ def editar_despesa_fixa(indice):
         aplicar_icone(erro_janela)
         frame = tk.Frame(erro_janela, padx=15, pady=15)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text=msg, foreground="#dc3545", wraplength=320, font=("Inter", 10)).pack(pady=10)
-        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+        ttk.Label(frame, text=msg, foreground="#dc3545",
+                  wraplength=320, font=("Inter", 10)).pack(pady=10)
+        ttk.Button(frame, text="OK", command=erro_janela.destroy,
+                   bootstyle="danger").pack()
         erro_janela.update_idletasks()
         w, h = erro_janela.winfo_width(), erro_janela.winfo_height()
         x = janela.winfo_rootx() + (janela.winfo_width() // 2) - (w // 2)
@@ -3043,7 +3117,8 @@ def editar_despesa_fixa(indice):
 
     status_btn.config(command=alternar_status)
     status_btn.pack(pady=8)
-    ttk.Button(main_frame, text="💾 Salvar", command=salvar_alteracoes, bootstyle="success").pack(pady=15)
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar_alteracoes,
+               bootstyle="success").pack(pady=15)
 
 def editar_gasto_cartao(gasto_original, callback_apos_salvar=None):
     janela = tk.Toplevel(app)
@@ -3068,13 +3143,16 @@ def editar_gasto_cartao(gasto_original, callback_apos_salvar=None):
     entrada_desc.insert(0, gasto_original["descricao"])
     entrada_desc.pack(pady=5)
 
-    ttk.Label(main_frame, text="Valor da Parcela (R$):", font=("Inter", 11)).pack(pady=5)
+    ttk.Label(main_frame, text="Valor da Parcela (R$):",
+              font=("Inter", 11)).pack(pady=5)
     entrada_valor = ttk.Entry(main_frame, font=("Inter", 10))
     entrada_valor.insert(0, str(valor_parcela))
     entrada_valor.pack(pady=5)
 
-    ttk.Label(main_frame, text="Tipo de Gasto:", font=("Inter", 11)).pack(pady=5)
-    combo_tipo = ttk.Combobox(main_frame, values=tipos_gasto, state="readonly", font=("Inter", 10))
+    ttk.Label(main_frame, text="Tipo de Gasto:",
+              font=("Inter", 11)).pack(pady=5)
+    combo_tipo = ttk.Combobox(
+        main_frame, values=tipos_gasto, state="readonly", font=("Inter", 10))
     combo_tipo.set(gasto_original.get("tipo", tipos_gasto[0]))
     combo_tipo.pack(pady=5)
 
@@ -3087,8 +3165,10 @@ def editar_gasto_cartao(gasto_original, callback_apos_salvar=None):
         aplicar_icone(erro_janela)
         frame = tk.Frame(erro_janela, padx=15, pady=15)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text=mensagem, foreground="#dc3545", wraplength=320, font=("Inter", 10)).pack(pady=10)
-        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+        ttk.Label(frame, text=mensagem, foreground="#dc3545",
+                  wraplength=320, font=("Inter", 10)).pack(pady=10)
+        ttk.Button(frame, text="OK", command=erro_janela.destroy,
+                   bootstyle="danger").pack()
         erro_janela.update_idletasks()
         w, h = erro_janela.winfo_width(), erro_janela.winfo_height()
         x = janela.winfo_rootx() + (janela.winfo_width() // 2) - (w // 2)
@@ -3114,7 +3194,8 @@ def editar_gasto_cartao(gasto_original, callback_apos_salvar=None):
         cartao_info = next((c for c in cartoes if c["nome"] == cartao), None)
         fechamento = cartao_info.get("fechamento") if cartao_info else None
         if fechamento is None:
-            mostrar_erro_toplevel(f"O cartão '{cartao}' não tem fechamento cadastrado.")
+            mostrar_erro_toplevel(
+                f"O cartão '{cartao}' não tem fechamento cadastrado.")
             return
 
         # calcular a fatura inicial correta
@@ -3160,7 +3241,8 @@ def editar_gasto_cartao(gasto_original, callback_apos_salvar=None):
         if callback_apos_salvar:
             callback_apos_salvar()
 
-    ttk.Button(main_frame, text="💾 Salvar", command=salvar, bootstyle="success").pack(pady=25)
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar,
+               bootstyle="success").pack(pady=25)
     janela.bind("<Return>", lambda e: salvar())
     entrada_desc.focus_set()
 
@@ -3204,8 +3286,10 @@ def editar_receita(nome_receita):
         aplicar_icone(erro_janela)
         frame = tk.Frame(erro_janela, padx=15, pady=15)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text=mensagem, foreground="#dc3545", wraplength=320, font=("Inter", 10)).pack(pady=10)
-        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+        ttk.Label(frame, text=mensagem, foreground="#dc3545",
+                  wraplength=320, font=("Inter", 10)).pack(pady=10)
+        ttk.Button(frame, text="OK", command=erro_janela.destroy,
+                   bootstyle="danger").pack()
         erro_janela.update_idletasks()
         w, h = erro_janela.winfo_width(), erro_janela.winfo_height()
         x = janela.winfo_rootx() + (janela.winfo_width() // 2) - (w // 2)
@@ -3225,7 +3309,8 @@ def editar_receita(nome_receita):
         atualizar_resumo()
         janela.destroy()
 
-    ttk.Button(main_frame, text="💾 Salvar", command=salvar, bootstyle="success").pack(pady=15)
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar,
+               bootstyle="success").pack(pady=15)
     janela.bind("<Return>", lambda event: salvar())
 
 def editar_gasto_diario(idx, callback_apos_salvar=None):
@@ -3253,21 +3338,26 @@ def editar_gasto_diario(idx, callback_apos_salvar=None):
     main_frame.pack(fill="both", expand=True)
 
     # Descrição
-    ttk.Label(main_frame, text="Descrição:", font=("Inter", 11)).pack(padx=10, pady=(10, 0), anchor="w")
+    ttk.Label(main_frame, text="Descrição:", font=("Inter", 11)
+              ).pack(padx=10, pady=(10, 0), anchor="w")
     entry_descricao = ttk.Entry(main_frame, font=("Inter", 10))
     entry_descricao.pack(padx=10, pady=8, fill="x")
     entry_descricao.insert(0, gasto["descricao"])
 
     # Valor
-    ttk.Label(main_frame, text="Valor:", font=("Inter", 11)).pack(padx=10, pady=(10, 0), anchor="w")
+    ttk.Label(main_frame, text="Valor:", font=("Inter", 11)
+              ).pack(padx=10, pady=(10, 0), anchor="w")
     entry_valor = ttk.Entry(main_frame, font=("Inter", 10))
     entry_valor.pack(padx=10, pady=8, fill="x")
     entry_valor.insert(0, str(gasto["valor"]))
 
     # Tipo de gasto
-    ttk.Label(main_frame, text="Tipo:", font=("Inter", 11)).pack(padx=10, pady=(10, 0), anchor="w")
-    tipos_existentes = ["Alimentação", "Transporte", "Saúde", "Lazer", "Moradia", "Outros"]
-    entry_tipo = ttk.Combobox(main_frame, values=tipos_existentes, font=("Inter", 10))
+    ttk.Label(main_frame, text="Tipo:", font=("Inter", 11)
+              ).pack(padx=10, pady=(10, 0), anchor="w")
+    tipos_existentes = ["Alimentação", "Transporte",
+                        "Saúde", "Lazer", "Moradia", "Outros"]
+    entry_tipo = ttk.Combobox(
+        main_frame, values=tipos_existentes, font=("Inter", 10))
     entry_tipo.pack(padx=10, pady=8, fill="x")
     entry_tipo.set(gasto.get("tipo", "Outros"))
 
@@ -3280,8 +3370,10 @@ def editar_gasto_diario(idx, callback_apos_salvar=None):
         aplicar_icone(erro_janela)
         frame = tk.Frame(erro_janela, padx=15, pady=15)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text=mensagem, foreground="#dc3545", wraplength=320, font=("Inter", 10)).pack(pady=10)
-        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+        ttk.Label(frame, text=mensagem, foreground="#dc3545",
+                  wraplength=320, font=("Inter", 10)).pack(pady=10)
+        ttk.Button(frame, text="OK", command=erro_janela.destroy,
+                   bootstyle="danger").pack()
         erro_janela.update_idletasks()
         w, h = erro_janela.winfo_width(), erro_janela.winfo_height()
         x = janela.winfo_rootx() + (janela.winfo_width() // 2) - (w // 2)
@@ -3310,10 +3402,13 @@ def editar_gasto_diario(idx, callback_apos_salvar=None):
         if callback_apos_salvar:
             callback_apos_salvar()
 
-    ttk.Button(main_frame, text="💾 Salvar", command=salvar, bootstyle="success").pack(pady=15)
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar,
+               bootstyle="success").pack(pady=15)
     janela.bind("<Return>", salvar)
     entry_descricao.focus_set()
+
 # ----------------------Funções excluir---------------------------------
+
 def excluir_gasto_cartao(gasto, parent_janela=None, callback_apos_excluir=None):
     confirm_janela = tk.Toplevel(app)
     confirm_janela.title("Excluir Gasto")
@@ -3352,13 +3447,15 @@ def excluir_gasto_cartao(gasto, parent_janela=None, callback_apos_excluir=None):
         fechamento = cartao_info.get("fechamento") if cartao_info else None
 
         if fechamento is None:
-            messagebox.showerror("Erro", f"O cartão '{cartao}' não possui fechamento cadastrado.")
+            messagebox.showerror(
+                "Erro", f"O cartão '{cartao}' não possui fechamento cadastrado.")
             confirm_janela.destroy()
             return
 
         if dia > fechamento:
             mes_fatura_inicial = mes_compra + 1
-            ano_fatura_inicial = ano_compra + (1 if mes_fatura_inicial > 12 else 0)
+            ano_fatura_inicial = ano_compra + \
+                (1 if mes_fatura_inicial > 12 else 0)
             mes_fatura_inicial = 1 if mes_fatura_inicial > 12 else mes_fatura_inicial
         else:
             mes_fatura_inicial = mes_compra
@@ -3399,8 +3496,10 @@ def excluir_gasto_cartao(gasto, parent_janela=None, callback_apos_excluir=None):
 
     botoes = tk.Frame(frame)
     botoes.pack(pady=10)
-    ttk.Button(botoes, text="✓ Sim", command=confirmar, bootstyle="danger").pack(side="left", padx=10)
-    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
+    ttk.Button(botoes, text="✓ Sim", command=confirmar,
+               bootstyle="danger").pack(side="left", padx=10)
+    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy,
+               bootstyle="secondary").pack(side="right", padx=10)
 
 def excluir_despesa_fixa(idx):
     mes = combo_mes.current() + 1
@@ -3449,17 +3548,19 @@ def excluir_despesa_fixa(idx):
 
     botoes = tk.Frame(frame)
     botoes.pack()
-    ttk.Button(botoes, text="✓ Sim", command=confirmar, bootstyle="danger").pack(side="left", padx=10)
-    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
+    ttk.Button(botoes, text="✓ Sim", command=confirmar,
+               bootstyle="danger").pack(side="left", padx=10)
+    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy,
+               bootstyle="secondary").pack(side="right", padx=10)
 
 def excluir_receita(nome_receita):
     mes = combo_mes.current() + 1
     ano = int(combo_ano.get())
     chave = get_chave(mes, ano)
-    
+
     if chave not in dados:
         inicializar_mes(mes, ano)
-    
+
     info = dados[chave]  # <- pega os dados do mês após inicializar
 
     if nome_receita not in info["receitas"]:
@@ -3478,7 +3579,8 @@ def excluir_receita(nome_receita):
 
     frame = tk.Frame(confirm_janela, padx=20, pady=20)
     frame.pack(fill="both", expand=True)
-    ttk.Label(frame, text=f"Deseja excluir a receita '{nome_receita}' deste mês?", font=("Inter", 11), wraplength=320, justify="center").pack(pady=15)
+    ttk.Label(frame, text=f"Deseja excluir a receita '{nome_receita}' deste mês?", font=(
+        "Inter", 11), wraplength=320, justify="center").pack(pady=15)
 
     def confirmar():
         del info["receitas"][nome_receita]
@@ -3488,8 +3590,10 @@ def excluir_receita(nome_receita):
 
     botoes = tk.Frame(frame)
     botoes.pack()
-    ttk.Button(botoes, text="✓ Sim", command=confirmar, bootstyle="danger").pack(side="left", padx=10)
-    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
+    ttk.Button(botoes, text="✓ Sim", command=confirmar,
+               bootstyle="danger").pack(side="left", padx=10)
+    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy,
+               bootstyle="secondary").pack(side="right", padx=10)
 
 def excluir_gasto_diario(idx, janela_detalhes=None, callback_apos_excluir=None):
     mes = combo_mes.current() + 1
@@ -3529,8 +3633,10 @@ def excluir_gasto_diario(idx, janela_detalhes=None, callback_apos_excluir=None):
 
     botoes = tk.Frame(frame)
     botoes.pack()
-    ttk.Button(botoes, text="✓ Sim", command=confirmar, bootstyle="danger").pack(side="left", padx=10)
-    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy, bootstyle="secondary").pack(side="right", padx=10)
+    ttk.Button(botoes, text="✓ Sim", command=confirmar,
+               bootstyle="danger").pack(side="left", padx=10)
+    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy,
+               bootstyle="secondary").pack(side="right", padx=10)
 
 # -------------------------Interface Responsiva------------------------------------
 frame_selecao = tk.Frame(app, pady=2, bg="#0d6efd")
@@ -3539,16 +3645,19 @@ frame_selecao.pack(pady=(2, 2), fill="x")
 combo_container = tk.Frame(frame_selecao, bg="#0d6efd")
 combo_container.pack()
 
-ttk.Label(combo_container, text="📅 Período:", font=("Inter", 13, "bold")).pack(side="left", padx=(0, 10))
+ttk.Label(combo_container, text="📅 Período:", font=(
+    "Inter", 13, "bold")).pack(side="left", padx=(0, 10))
 
 meses = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
 ]
-combo_mes = ttk.Combobox(combo_container, values=meses, state="readonly", width=14, font=("Inter", 11))
+combo_mes = ttk.Combobox(combo_container, values=meses,
+                         state="readonly", width=14, font=("Inter", 11))
 
 anos = [str(y) for y in range(2025, 2050)]
-combo_ano = ttk.Combobox(combo_container, values=anos, state="readonly", width=8, font=("Inter", 11))
+combo_ano = ttk.Combobox(combo_container, values=anos,
+                         state="readonly", width=8, font=("Inter", 11))
 
 try:
     with open("ultima_selecao.json", "r") as f:
@@ -3571,99 +3680,112 @@ combo_ano.bind("<<ComboboxSelected>>", lambda e: atualizar_resumo())
 frame_resumo = tk.LabelFrame(
     app, text="📊 Resumo Geral",
     padx=12, pady=12, bg="#d9e3f1", fg="#0d6efd",
-    font=("Inter", 13, "bold")  # fonte aumentada
+    font=("Inter", 13, "bold")
 )
 frame_resumo.pack(fill="x", padx=10, pady=(2, 5))
 
 frame_main = tk.Frame(app, bg="#0d6efd")
 frame_main.pack(fill="both", expand=True, padx=15, pady=8)
 
-# Grid para layout flexível e responsivo
-frame_main.rowconfigure(0, weight=1)
-frame_main.rowconfigure(1, weight=1)
-frame_main.columnconfigure(0, weight=1)
-frame_main.columnconfigure(1, weight=1)
-
-
 # -------------------------
 # Função para criar cards
 # -------------------------
-def criar_card(container, titulo, bg, expandable=True, pady=5):
-    # Frame externo: simula sombra
+
+
+def criar_card(container, titulo, bg, expandable=True, pady=5, height=None):
     sombra = tk.Frame(container, bg="#b0b0b0")
-    sombra.pack(side="left", expand=True, fill="both", padx=5, pady=pady)
+    sombra.pack(side="left", fill="both", expand=True, padx=5, pady=pady)
 
-    # Frame interno: o card real
     frame = tk.Frame(sombra, bg=bg, bd=1, relief="ridge")
-    frame.pack(expand=True, fill="both", padx=(0,2), pady=(0,2))
+    frame.pack(expand=True, fill="both", padx=(0, 2), pady=(0, 2))
 
-    # Cabeçalho
     header = tk.Frame(frame, bg=bg)
     header.pack(fill="x", padx=10, pady=8)
 
-    lbl_titulo = ttk.Label(header, text=titulo, font=("Segoe UI", 11, "bold"), background=bg)  # fonte aumentada
+    lbl_titulo = ttk.Label(header, text=titulo, font=(
+        "Segoe UI", 11, "bold"), background=bg)
     lbl_titulo.pack(side="left")
-    lbl_total = ttk.Label(header, text="R$ 0,00", font=("Segoe UI", 10), background=bg)
+    lbl_total = ttk.Label(header, text="R$ 0,00",
+                          font=("Segoe UI", 10), background=bg)
     lbl_total.pack(side="right")
 
-    # Área expansível
     if expandable:
         canvas = tk.Canvas(frame, bg=bg, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        scrollbar = ttk.Scrollbar(
+            frame, orient="vertical", command=canvas.yview)
         scroll_frame = tk.Frame(canvas, bg=bg)
 
-        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0,0), window=scroll_frame, anchor="nw")
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
 
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         return frame, lbl_total, scroll_frame
     else:
-        return frame, lbl_total, None
+        scroll_frame = tk.Frame(frame, bg=bg, height=height)
+        scroll_frame.pack(fill="both", expand=True, pady=5)
+        return frame, lbl_total, scroll_frame
+
 
 # -------------------------
-# Containers para organizar linhas
+# Containers topo e base
 # -------------------------
 container_cards_topo = tk.Frame(frame_main, bg="#0d6efd")
 container_cards_topo.pack(fill="both", expand=True, pady=5)
 
 container_cards_base = tk.Frame(frame_main, bg="#0d6efd")
-container_cards_base.pack(fill="both", expand=False, pady=5)
+# altura automática pelo conteúdo
+container_cards_base.pack(fill="x", expand=False, pady=5)
+
+container_cards_topo.pack_propagate(False)  # controla altura do topo
+container_cards_base.pack_propagate(True)   # base mantém altura automática
 
 # -------------------------
-# Topo: Receitas e Despesas Fixas (maiores)
+# Topo: Receitas e Despesas Fixas
 # -------------------------
 frame_receitas, lbl_receitas, lista_receitas = criar_card(
-    container_cards_topo, "💰 Receitas", bg="#e6ffea", expandable=True
-)
-frame_receitas.pack(side="left", expand=True, fill="both", padx=5)
+    container_cards_topo, "💰 Receitas", bg="#e6ffea", expandable=True)
+frame_receitas.pack(side="left", fill="both", expand=True, padx=5)
 
 frame_despesas, lbl_despesas, lista_despesas = criar_card(
-    container_cards_topo, "🏠 Despesas Fixas", bg="#ffe6e6", expandable=True
-)
-frame_despesas.pack(side="left", expand=True, fill="both", padx=5)
+    container_cards_topo, "🏠 Despesas Fixas", bg="#ffe6e6", expandable=True)
+frame_despesas.pack(side="left", fill="both", expand=True, padx=5)
 
 # -------------------------
-# Base: Gastos Diários e Cartão de Crédito (menores)
+# Base: Gastos Diários e Cartão de Crédito
 # -------------------------
-frame_gastos, lbl_gastos, _ = criar_card(
+frame_gastos, lbl_gastos, lista_gastos = criar_card(
     container_cards_base, "🛒 Gastos Diários", bg="#e6f0ff", expandable=False
 )
-lista_gastos = tk.Frame(frame_gastos, bg="#e6f0ff", height=100)
-lista_gastos.pack(fill="both", expand=True)
+frame_gastos.pack(side="left", fill="x", expand=True, padx=5)
 
-frame_credito, lbl_credito, _ = criar_card(
+frame_credito, lbl_credito, lista_credito = criar_card(
     container_cards_base, "💳 Cartão de Crédito", bg="#f2e6ff", expandable=False
 )
-lista_credito = tk.Frame(frame_credito, bg="#f2e6ff", height=100)
-lista_credito.pack(fill="both", expand=True)
+frame_credito.pack(side="left", fill="x", expand=True, padx=5)
 
 # ---- Compatibilidade com atualizar_resumo ----
 scroll_frame_receitas = lista_receitas
 scroll_frame_despesas = lista_despesas
 scroll_frame_gastos = lista_gastos
 scroll_frame_credito = lista_credito
+
+# -------------------------
+# Ajuste de altura e largura proporcional topo
+# -------------------------
+# -------------------------
+# Ajuste de altura proporcional topo
+# -------------------------
+
+
+def ajustar_topo(event):
+    altura_total = event.height
+    proporcao_topo = 0.6  # 60% da altura do frame_main para topo
+    container_cards_topo.config(height=int(altura_total * proporcao_topo))
+    # largura das seções do topo é ajustada automaticamente pelo pack(expand=True, fill="both")
+
 
 # Inicializa dados para o mês atual
 atualizar_resumo()
