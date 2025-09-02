@@ -25,7 +25,10 @@ def buscar_atualizacao():
     try:
         url_updater = resource_path("updater.pyw")
         exe_atual = sys.executable  # pega o caminho do exe em execução
+
+        # Chama o updater pelo interpretador padrão associado a .pyw
         subprocess.Popen([sys.executable, url_updater, exe_atual, VERSAO_ATUAL])
+
         sys.exit()
     except Exception as e:
         messagebox.showerror("Erro", f"Falha ao iniciar atualização: {e}")

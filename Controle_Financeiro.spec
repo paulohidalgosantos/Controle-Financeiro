@@ -38,7 +38,10 @@ if os.path.exists(dlls_dir):
             dlls_to_include.append((dll_file, '.'))
 
 # Data files do PIL/Tkinter
-datas = [('icone.png', '.')]
+datas = [
+    ('icone.png', '.'),
+    ('updater.pyw', '.')
+]
 
 # --------- Analysis ----------
 a = Analysis(

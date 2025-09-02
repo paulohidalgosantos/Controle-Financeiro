@@ -7,11 +7,10 @@ import tempfile
 import subprocess
 import tkinter as tk
 from tkinter import messagebox
+import time
 
 # ---------------- CONFIGURAÇÕES ----------------
-# link do zip contendo apenas o novo exe
 URL_ATUALIZACAO = "https://seu-servidor.com/ControleFinanceiro.zip"
-VERSAO_ATUAL = "1.1.1"  # será lido do app principal e passado como argumento
 
 
 def main():
@@ -19,14 +18,12 @@ def main():
         messagebox.showerror("Erro", "Updater chamado de forma incorreta.")
         return
 
-    # caminho completo do exe atual (renomeado ou não)
-    exe_atual = sys.argv[1]
+    exe_atual = sys.argv[1]   # caminho completo do exe original
     versao_local = sys.argv[2]
 
     pasta_app = os.path.dirname(exe_atual)
     nome_exe = os.path.basename(exe_atual)
 
-    # Cria pasta temporária
     pasta_temp = tempfile.mkdtemp(prefix="CF_Update_")
 
     try:
@@ -38,7 +35,7 @@ def main():
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(pasta_temp)
 
-        # Procura novo exe dentro do zip
+        # Procura novo exe
         novo_exe = None
         for root, _, files in os.walk(pasta_temp):
             for f in files:
@@ -52,11 +49,29 @@ def main():
             return
 
         destino = os.path.join(pasta_app, nome_exe)
+        backup = destino + ".old"
 
-        # Substitui exe antigo
+        # Espera até que o exe antigo seja liberado
+        for _ in range(30):
+            try:
+                os.rename(destino, backup)
+                break
+            except PermissionError:
+                time.sleep(1)
+        else:
+            messagebox.showerror(
+                "Erro", "Não foi possível substituir o aplicativo (arquivo em uso).")
+            return
+
+        # Copia novo exe para o destino
         shutil.copy2(novo_exe, destino)
 
-        # Mensagem de sucesso
+        # Remove backup
+        try:
+            os.remove(backup)
+        except:
+            pass
+
         messagebox.showinfo(
             "Atualização", "Aplicativo atualizado com sucesso!")
 
@@ -67,11 +82,7 @@ def main():
         messagebox.showerror("Erro na atualização", str(e))
 
     finally:
-        # Limpa pasta temporária
-        try:
-            shutil.rmtree(pasta_temp, ignore_errors=True)
-        except:
-            pass
+        shutil.rmtree(pasta_temp, ignore_errors=True)
 
 
 if __name__ == "__main__":
