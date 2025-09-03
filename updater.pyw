@@ -17,6 +17,7 @@ from tkinter import scrolledtext, messagebox
 import time
 import threading
 from pathlib import Path
+from typing import Optional   # 🔹 correção: faltava esse import
 
 
 class UpdaterGUI:
@@ -38,10 +39,6 @@ class UpdaterGUI:
         self.root.title("Atualizando Controle Financeiro")
         self.root.geometry("600x400")
         self.root.resizable(False, False)
-
-        # Centraliza a janela
-        self.root.transient()
-        self.root.grab_set()
 
         # Frame principal
         main_frame = tk.Frame(self.root, bg='#f0f0f0')
@@ -160,18 +157,15 @@ class UpdaterGUI:
             if not novo_exe:
                 raise Exception("Nenhum executável encontrado na atualização")
 
-            self.escrever_log(
-                f"Novo executável encontrado: {os.path.basename(novo_exe)}")
+            self.escrever_log(f"Novo executável encontrado: {os.path.basename(novo_exe)}")
 
             # Substitui o aplicativo
             self._substituir_aplicativo(novo_exe)
 
             # Finaliza com sucesso
             self.escrever_log("=== ATUALIZAÇÃO CONCLUÍDA ===")
-            self.atualizar_progresso(
-                "Atualização concluída! Iniciando aplicativo...")
+            self.atualizar_progresso("Atualização concluída! Iniciando aplicativo...")
 
-            # Aguarda um momento e inicia o novo app
             time.sleep(2)
             self._iniciar_novo_app()
 
@@ -181,32 +175,26 @@ class UpdaterGUI:
             messagebox.showerror("Erro na Atualização", str(e))
 
         finally:
-            # Limpa pasta temporária
             if pasta_temp and os.path.exists(pasta_temp):
                 try:
                     shutil.rmtree(pasta_temp)
                     self.escrever_log("Pasta temporária removida")
                 except:
-                    self.escrever_log(
-                        "Aviso: não foi possível remover pasta temporária")
+                    self.escrever_log("Aviso: não foi possível remover pasta temporária")
 
     def _encontrar_executavel(self, pasta: str) -> Optional[str]:
         """Encontra o executável na pasta extraída"""
         for root, dirs, files in os.walk(pasta):
             for arquivo in files:
                 if arquivo.endswith(('.exe', '.pyw', '.py')):
-                    # Prioriza .exe, depois .pyw, depois .py
-                    caminho_completo = os.path.join(root, arquivo)
                     if arquivo.endswith('.exe'):
-                        return caminho_completo
+                        return os.path.join(root, arquivo)
 
-        # Se não encontrou .exe, procura .pyw
         for root, dirs, files in os.walk(pasta):
             for arquivo in files:
                 if arquivo.endswith('.pyw'):
                     return os.path.join(root, arquivo)
 
-        # Se não encontrou .pyw, procura .py principal
         for root, dirs, files in os.walk(pasta):
             for arquivo in files:
                 if arquivo == 'main.py' or 'controle' in arquivo.lower():
@@ -221,7 +209,6 @@ class UpdaterGUI:
 
         self.atualizar_progresso("Criando backup do aplicativo atual...")
 
-        # Aguarda o processo atual terminar e cria backup
         for tentativa in range(10):
             try:
                 if os.path.exists(destino):
@@ -229,18 +216,15 @@ class UpdaterGUI:
                     self.escrever_log("Backup criado com sucesso")
                 break
             except PermissionError:
-                self.escrever_log(
-                    f"Tentativa {tentativa + 1}: arquivo em uso, aguardando...")
+                self.escrever_log(f"Tentativa {tentativa + 1}: arquivo em uso, aguardando...")
                 time.sleep(1)
         else:
             raise Exception("Não foi possível criar backup - arquivo em uso")
 
-        # Copia novo executável
         self.atualizar_progresso("Instalando nova versão...")
         shutil.copy2(novo_exe, destino)
         self.escrever_log("Nova versão instalada com sucesso!")
 
-        # Remove backup antigo
         try:
             os.remove(backup)
             self.escrever_log("Backup antigo removido")
@@ -253,26 +237,19 @@ class UpdaterGUI:
             self.escrever_log("Iniciando aplicativo atualizado...")
 
             if self.exe_atual.endswith('.exe'):
-                # Executável
                 subprocess.Popen([self.exe_atual], cwd=self.pasta_app)
             else:
-                # Script Python
-                subprocess.Popen(
-                    [sys.executable, self.exe_atual], cwd=self.pasta_app)
+                subprocess.Popen([sys.executable, self.exe_atual], cwd=self.pasta_app)
 
             self.escrever_log("Aplicativo iniciado com sucesso!")
-
-            # Fecha o updater após 3 segundos
             self.root.after(3000, self.root.destroy)
 
         except Exception as e:
             self.escrever_log(f"Erro ao iniciar aplicativo: {e}")
-            messagebox.showerror(
-                "Erro", f"Aplicativo atualizado, mas erro ao iniciar: {e}")
+            messagebox.showerror("Erro", f"Aplicativo atualizado, mas erro ao iniciar: {e}")
 
 
 def main():
-    """Função principal do updater"""
     if len(sys.argv) < 5:
         messagebox.showerror(
             "Erro",
@@ -286,17 +263,10 @@ def main():
     versao_nova = sys.argv[3]
     url_download = sys.argv[4]
 
-    # Aguarda um momento para o app principal fechar
     time.sleep(2)
 
-    # Cria e executa o updater GUI
-    updater_gui = UpdaterGUI(exe_atual, versao_atual,
-                             versao_nova, url_download)
-
-    # Inicia atualização em thread separada
+    updater_gui = UpdaterGUI(exe_atual, versao_atual, versao_nova, url_download)
     threading.Thread(target=updater_gui.atualizar_app, daemon=True).start()
-
-    # Executa a interface
     updater_gui.root.mainloop()
 
 

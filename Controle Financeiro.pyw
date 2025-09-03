@@ -24,10 +24,17 @@ VERSAO_ATUAL = "1.1.2"
 def buscar_atualizacao():
     try:
         url_updater = resource_path("updater.pyw")
-        exe_atual = sys.executable  # pega o caminho do exe em execução
+        exe_atual = sys.executable  # caminho do exe atual
 
-        # Chama o updater pelo interpretador padrão associado a .pyw
-        subprocess.Popen([sys.executable, url_updater, exe_atual, VERSAO_ATUAL])
+        # Chama o updater com todos os parâmetros necessários
+        subprocess.Popen([
+            sys.executable,
+            url_updater,
+            exe_atual,
+            VERSAO_ATUAL,
+            VERSAO_NOVA,
+            URL_ATUALIZACAO
+        ])
 
         sys.exit()
     except Exception as e:
