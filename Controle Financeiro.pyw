@@ -22,26 +22,42 @@ import locale
 VERSAO_ATUAL = "1.1.2"
 
 def buscar_atualizacao():
+    """Verifica se existe uma nova versão e chama o updater se necessário."""
     try:
-        url_updater = resource_path("updater.pyw")
-        exe_atual = sys.executable  # caminho do exe atual
+        url_versao = "https://raw.githubusercontent.com/paulohidalgosantos/Controle-Financeiro/main/versao.txt"
+        with urllib.request.urlopen(url_versao) as response:
+            conteudo = response.read().decode("utf-8").strip()
 
-        # Chama o updater com todos os parâmetros necessários
-        subprocess.Popen([
-            sys.executable,
-            url_updater,
-            exe_atual,
-            VERSAO_ATUAL,
-            VERSAO_NOVA,
-            URL_ATUALIZACAO
-        ])
+        dados = conteudo.split(";")
+        if len(dados) < 2:
+            messagebox.showerror("Erro", "Arquivo de versão inválido no servidor.")
+            return
 
-        sys.exit()
+        versao_nova, url_download = dados[0], dados[1]
+
+        if versao_nova != VERSAO_ATUAL:
+            resposta = messagebox.askyesno(
+                "Atualização disponível",
+                f"Versão {versao_nova} disponível.\nDeseja atualizar agora?"
+            )
+            if resposta:
+                url_updater = resource_path("updater.pyw")
+                exe_atual = sys.executable
+                subprocess.Popen([
+                    sys.executable,
+                    url_updater,
+                    exe_atual,
+                    VERSAO_ATUAL,
+                    versao_nova,
+                    url_download
+                ])
+                sys.exit()
+
     except Exception as e:
-        messagebox.showerror("Erro", f"Falha ao iniciar atualização: {e}")
+        messagebox.showerror("Erro", f"Falha ao buscar atualização:\n{e}")
 
 def baixar_e_instalar_atualizacao(url, versao_nova):
-    """Mantida apenas por compatibilidade, agora usamos o updater externo."""
+    """Mantida apenas por compatibilidade"""
     messagebox.showinfo(
         "Atualização",
         "O processo de atualização agora será realizado pelo updater externo."

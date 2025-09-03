@@ -42,15 +42,6 @@ REM Empacota usando o .spec
 echo Empacotando...
 pyinstaller --clean Controle_Financeiro.spec
 
-REM Copia o updater.pyw para a pasta dist
-if exist "updater.pyw" (
-    if not exist "dist\Controle Financeiro" mkdir "dist\Controle Financeiro"
-    copy /Y "updater.pyw" "dist\Controle Financeiro\updater.pyw"
-    echo Updater copiado para dist.
-) else (
-    echo [AVISO] updater.pyw nao encontrado na pasta do projeto!
-)
-
 REM Verifica se funcionou
 if exist "dist\Controle Financeiro\Controle Financeiro.exe" (
     echo.
