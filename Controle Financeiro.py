@@ -20,7 +20,6 @@ import urllib.request
 import locale
 
 VERSAO_ATUAL = "1.1.2"
-
 def buscar_atualizacao():
     """Verifica se existe uma nova versão e chama o updater se necessário."""
     try:
@@ -41,7 +40,8 @@ def buscar_atualizacao():
                 f"Versão {versao_nova} disponível.\nDeseja atualizar agora?"
             )
             if resposta:
-                url_updater = resource_path("updater.pyw")
+                # Chama o updater.py agora, não .pyw
+                url_updater = resource_path("updater.py")
                 exe_atual = sys.executable
                 subprocess.Popen([
                     sys.executable,
@@ -55,13 +55,6 @@ def buscar_atualizacao():
 
     except Exception as e:
         messagebox.showerror("Erro", f"Falha ao buscar atualização:\n{e}")
-
-def baixar_e_instalar_atualizacao(url, versao_nova):
-    """Mantida apenas por compatibilidade"""
-    messagebox.showinfo(
-        "Atualização",
-        "O processo de atualização agora será realizado pelo updater externo."
-    )
 
 def verificar_dependencias():
     """Verifica se todas as dependências estão disponíveis - útil para debug"""

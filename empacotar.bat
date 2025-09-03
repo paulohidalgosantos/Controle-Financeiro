@@ -40,7 +40,7 @@ if exist "dist\Controle Financeiro\Controle Financeiro.exe" (
 
 REM Empacota usando o .spec
 echo Empacotando...
-pyinstaller --clean Controle_Financeiro.spec
+pyinstaller --clean "Controle_Financeiro.spec"
 
 REM Verifica se funcionou
 if exist "dist\Controle Financeiro\Controle Financeiro.exe" (

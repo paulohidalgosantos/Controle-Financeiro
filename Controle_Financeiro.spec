@@ -8,11 +8,10 @@ from PyInstaller.building.build_main import Analysis, PYZ, EXE
 project_dir = os.path.abspath(".")
 icon_path = os.path.join(project_dir, "icone.ico")
 
-# Diretório do Python e versão
+# DLLs essenciais
 python_dir = os.path.dirname(sys.executable)
 python_version = f"{sys.version_info.major}{sys.version_info.minor}"
 
-# DLLs essenciais
 dlls_to_include = []
 
 for dll_name in [f"python{python_version}.dll", "python3.dll"]:
@@ -34,13 +33,15 @@ if os.path.exists(dlls_dir):
         if dll_name.startswith(('python', '_')):
             dlls_to_include.append((dll_file, '.'))
 
+# Arquivos extras
 datas = [
     ('icone.png', '.'),
-    ('updater.pyw', '.')
+    ('updater.py', '.')  # já alterado para .py
 ]
 
+# --------- Analysis ----------
 a = Analysis(
-    ['Controle Financeiro.pyw'],
+    ['Controle Financeiro.py'],  # seu script principal .py
     pathex=[project_dir],
     binaries=dlls_to_include,
     datas=datas,
@@ -55,8 +56,10 @@ a = Analysis(
     noarchive=False
 )
 
+# --------- PYZ ----------
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
+# --------- EXE ----------
 exe = EXE(
     pyz,
     a.scripts,
@@ -70,6 +73,6 @@ exe = EXE(
     strip=False,
     upx=True,
     upx_exclude=[dll[0] for dll in dlls_to_include],
-    console=False,
+    console=True,  # CONSOLE ATIVO PARA LOGS DO UPDATER
     icon=icon_path
 )
