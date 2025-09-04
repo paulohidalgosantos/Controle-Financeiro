@@ -47,8 +47,7 @@ hidden_imports = [
 
 # Arquivos extras
 datas = [
-    ('icone.png', '.'),
-    ('updater.py', '.')
+    ('icone.png', '.')
 ]
 
 # --------- Analysis ----------

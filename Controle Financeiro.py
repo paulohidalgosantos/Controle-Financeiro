@@ -20,8 +20,10 @@ import urllib.request
 import locale
 
 VERSAO_ATUAL = "1.1.3"
+
 def buscar_atualizacao():
-    """Verifica se existe uma nova versão e chama o updater se necessário."""
+    """Verifica se existe uma nova versão e atualiza o app em 1 exe."""
+
     try:
         url_versao = "https://raw.githubusercontent.com/paulohidalgosantos/Controle-Financeiro/main/versao.txt"
         with urllib.request.urlopen(url_versao) as response:
@@ -34,28 +36,90 @@ def buscar_atualizacao():
 
         versao_nova, url_download = dados[0], dados[1]
 
-        if versao_nova != VERSAO_ATUAL:
-            resposta = messagebox.askyesno(
-                "Atualização disponível",
-                f"Versão {versao_nova} disponível.\nDeseja atualizar agora?"
-            )
-            if resposta:
-                # Chama o updater.py agora, não .pyw
-                url_updater = resource_path("updater.py")
-                exe_atual = sys.executable
-                subprocess.Popen([
-                    sys.executable,
-                    url_updater,
-                    exe_atual,
-                    VERSAO_ATUAL,
-                    versao_nova,
-                    url_download
-                ])
+        if versao_nova == VERSAO_ATUAL:
+            messagebox.showinfo("Atualização", "Você já possui a versão mais recente.")
+            return
+
+        resposta = messagebox.askyesno(
+            "Atualização disponível",
+            f"Versão {versao_nova} disponível.\nDeseja atualizar agora?"
+        )
+        if not resposta:
+            return
+
+        # Mostrar GUI de progresso
+        class UpdaterGUI:
+            def __init__(self):
+                self.root = tk.Toplevel()
+                self.root.title("Atualizando Controle Financeiro")
+                self.root.geometry("600x400")
+
+                self.label_status = ttk.Label(
+                    self.root,
+                    text=f"Atualizando da versão {VERSAO_ATUAL} para {versao_nova}...",
+                    font=("Segoe UI", 12)
+                )
+                self.label_status.pack(pady=10)
+
+                self.text_area = scrolledtext.ScrolledText(
+                    self.root, wrap=tk.WORD, height=15, width=70, state="disabled")
+                self.text_area.pack(padx=10, pady=10, fill="both", expand=True)
+
+                self.progress = ttk.Progressbar(self.root, mode="indeterminate")
+                self.progress.pack(fill="x", padx=10, pady=10)
+                self.progress.start(10)
+
+            def escrever_log(self, msg):
+                self.text_area.configure(state="normal")
+                self.text_area.insert(tk.END, msg + "\n")
+                self.text_area.configure(state="disabled")
+                self.text_area.see(tk.END)
+                self.root.update()
+
+        gui = UpdaterGUI()
+
+        def atualizar():
+            try:
+                tempdir = tempfile.mkdtemp()
+                gui.escrever_log(f"Temp dir criada: {tempdir}")
+
+                zip_path = os.path.join(tempdir, "update.zip")
+                gui.escrever_log(f"Baixando atualização de {url_download}...")
+                urllib.request.urlretrieve(url_download, zip_path)
+                gui.escrever_log("Download concluído.")
+
+                gui.escrever_log("Extraindo arquivos...")
+                with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                    zip_ref.extractall(tempdir)
+                gui.escrever_log("Extração concluída.")
+
+                # Criar batch temporário para substituir arquivos e reiniciar exe
+                exe_path = sys.executable
+                bat_path = os.path.join(tempdir, "update.bat")
+                with open(bat_path, "w", encoding="utf-8") as f:
+                    f.write(f"""
+@echo off
+ping 127.0.0.1 -n 3 >nul
+xcopy /y /e "{tempdir}\\*" "{os.path.dirname(exe_path)}"
+start "" "{exe_path}"
+del "%~f0"
+""")
+                gui.escrever_log("Preparando atualização final...")
+                subprocess.Popen([bat_path], shell=True)
+                gui.escrever_log("Atualização iniciada. O aplicativo será fechado.")
+                time.sleep(1)
                 sys.exit()
+
+            except Exception as e:
+                gui.escrever_log(f"[ERRO] {e}")
+                messagebox.showerror("Erro", f"Falha na atualização:\n{e}")
+
+        threading.Thread(target=atualizar, daemon=True).start()
+        gui.root.mainloop()
 
     except Exception as e:
         messagebox.showerror("Erro", f"Falha ao buscar atualização:\n{e}")
-
+        
 def verificar_dependencias():
     """Verifica se todas as dependências estão disponíveis - útil para debug"""
     try:
