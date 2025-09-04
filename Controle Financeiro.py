@@ -21,10 +21,11 @@ import locale
 from tkinter import scrolledtext
 import tempfile
 import zipfile
+import threading
 
 
 
-VERSAO_ATUAL = "1.1.3"
+VERSAO_ATUAL = "1.1.2"
 
 def buscar_atualizacao():
     """Verifica se existe uma nova versão e atualiza o app em 1 exe."""
