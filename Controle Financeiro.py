@@ -26,6 +26,7 @@ import threading
 
 VERSAO_ATUAL = "1.1.3"
 
+
 def buscar_atualizacao(app):
     """Verifica se existe uma nova versão e atualiza o app em 1 exe."""
     try:
@@ -35,7 +36,8 @@ def buscar_atualizacao(app):
             versao_nova = response.read().decode("utf-8").strip()
 
         if versao_nova == VERSAO_ATUAL:
-            messagebox.showinfo("Atualização", "Você já possui a versão mais recente.", parent=app)
+            messagebox.showinfo(
+                "Atualização", "Você já possui a versão mais recente.", parent=app)
             return
 
         resposta = messagebox.askyesno(
@@ -64,12 +66,13 @@ def buscar_atualizacao(app):
                     self.root, wrap=tk.WORD, height=15, width=70, state="disabled")
                 self.text_area.pack(padx=10, pady=10, fill="both", expand=True)
 
-                self.progress = ttk.Progressbar(self.root, mode="indeterminate")
+                self.progress = ttk.Progressbar(
+                    self.root, mode="indeterminate")
                 self.progress.pack(fill="x", padx=10, pady=10)
                 self.progress.start(10)
 
             def escrever_log(self, msg):
-                # Garantir que a atualização da GUI seja feita na thread principal
+                # Atualiza a GUI na thread principal
                 self.root.after(0, self._escrever_gui, msg)
 
             def _escrever_gui(self, msg):
@@ -97,9 +100,13 @@ def buscar_atualizacao(app):
                 urllib.request.urlretrieve(url_download, temp_exe)
                 gui.escrever_log("Download concluído.")
 
-                exe_path = sys.executable  # caminho do exe atual
+                # Caminho do app atual (respeita nome do usuário e pasta)
+                exe_path = os.path.abspath(sys.argv[0])
+                gui.escrever_log(f"Caminho do app atual: {exe_path}")
+
                 bat_path = os.path.join(tempdir, "update.bat")
 
+                # Cria batch temporário para substituir exe e reiniciar
                 with open(bat_path, "w", encoding="utf-8") as f:
                     f.write(f"""
 @echo off
@@ -129,7 +136,9 @@ del "%~f0"
         gui.root.mainloop()
 
     except Exception as e:
-        messagebox.showerror("Erro", f"Falha ao buscar atualização:\n{e}", parent=app)
+        messagebox.showerror(
+            "Erro", f"Falha ao buscar atualização:\n{e}", parent=app)
+
 
 def verificar_dependencias():
     """Verifica se todas as dependências estão disponíveis - útil para debug"""
@@ -502,6 +511,7 @@ if __name__ == "__main__":
 def show_warning(msg, title="Aviso"):
     """Exibe uma mensagem de aviso usando a janela principal como parent."""
     messagebox.showwarning(title, msg, parent=app)
+
 
 def show_error(msg, title="Erro"):
     """Exibe uma mensagem de erro usando a janela principal como parent."""
