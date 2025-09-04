@@ -24,29 +24,18 @@ import zipfile
 import threading
 
 
-VERSAO_ATUAL = "1.1.3"
+VERSAO_ATUAL = "1.1.2"
 
 def buscar_atualizacao(app):
-    """Verifica se existe uma nova versão e atualiza o app em 1 exe, salvando log em arquivo."""
+    """Verifica se existe uma nova versão e atualiza o app em 1 exe."""
     try:
-        # Caminho do log de atualização
-        LOG_PATH = os.path.join(BASE_DIR, "update_log.txt")
-        # Limpa log anterior
-        with open(LOG_PATH, "w", encoding="utf-8") as f:
-            f.write(f"Iniciando verificação de atualização em {datetime.now()}\n")
-
         # URL do arquivo de versão no GitHub (somente o número da versão)
         url_versao = "https://raw.githubusercontent.com/paulohidalgosantos/Controle-Financeiro/main/versao.txt"
         with urllib.request.urlopen(url_versao) as response:
             versao_nova = response.read().decode("utf-8").strip()
 
-        with open(LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(f"Versão atual: {VERSAO_ATUAL}, versão nova: {versao_nova}\n")
-
         if versao_nova == VERSAO_ATUAL:
             messagebox.showinfo("Atualização", "Você já possui a versão mais recente.", parent=app)
-            with open(LOG_PATH, "a", encoding="utf-8") as f:
-                f.write("Nenhuma atualização disponível.\n")
             return
 
         resposta = messagebox.askyesno(
@@ -55,8 +44,6 @@ def buscar_atualizacao(app):
             parent=app
         )
         if not resposta:
-            with open(LOG_PATH, "a", encoding="utf-8") as f:
-                f.write("Usuário cancelou a atualização.\n")
             return
 
         # ------------------- GUI de progresso -------------------
@@ -82,11 +69,7 @@ def buscar_atualizacao(app):
                 self.progress.start(10)
 
             def escrever_log(self, msg):
-                # Atualiza GUI
                 self.root.after(0, self._escrever_gui, msg)
-                # Salva no log
-                with open(LOG_PATH, "a", encoding="utf-8") as f:
-                    f.write(msg + "\n")
 
             def _escrever_gui(self, msg):
                 self.text_area.configure(state="normal")
@@ -102,6 +85,7 @@ def buscar_atualizacao(app):
         # ------------------- Função de atualização -------------------
         def atualizar():
             try:
+                # Diretório temporário
                 tempdir = tempfile.mkdtemp()
                 gui.escrever_log(f"Temp dir criada: {tempdir}")
 
@@ -113,21 +97,45 @@ def buscar_atualizacao(app):
                 urllib.request.urlretrieve(url_download, temp_exe)
                 gui.escrever_log("Download concluído.")
 
-                exe_path = sys.executable  # caminho do exe atual
+                # Detecta o caminho do exe atual corretamente
+                if getattr(sys, 'frozen', False):
+                    exe_path = sys.executable  # se empacotado com PyInstaller
+                else:
+                    exe_path = os.path.abspath(__file__)  # se rodando do .py
+
                 bat_path = os.path.join(tempdir, "update.bat")
 
+                # Diretório fixo para log do BAT
+                log_dir = os.path.join(os.path.expanduser("~"), "ControleFinanceiroLogs")
+                os.makedirs(log_dir, exist_ok=True)
+                log_bat = os.path.join(log_dir, "update_bat_log.txt")
+
+                # Criando BAT
                 with open(bat_path, "w", encoding="utf-8") as f:
                     f.write(f"""
 @echo off
-ping 127.0.0.1 -n 3 >nul
-copy /y "{temp_exe}" "{exe_path}"
+set log_path="{log_bat}"
+echo [%%date%% %%time%%] [BAT] Iniciando processo de atualização >> %%log_path%%
+timeout /t 3 /nobreak >nul
+echo [%%date%% %%time%%] [BAT] Copiando novo exe... >> %%log_path%%
+copy /y "{temp_exe}" "{exe_path}" >> %%log_path%% 2>&1
+if %%errorlevel%% neq 0 (
+    echo [%%date%% %%time%%] [BAT] ERRO ao copiar novo exe >> %%log_path%%
+    exit /b %%errorlevel%%
+)
+echo [%%date%% %%time%%] [BAT] Reiniciando aplicativo... >> %%log_path%%
 start "" "{exe_path}"
-del "%~f0"
+echo [%%date%% %%time%%] [BAT] Atualização concluída com sucesso >> %%log_path%%
+del "%%~f0"
 """)
 
+                gui.escrever_log(f"Caminho do exe atual: {exe_path}")
+                gui.escrever_log(f"Caminho do novo exe temporário: {temp_exe}")
+                gui.escrever_log(f"Caminho do script .bat: {bat_path}")
+                gui.escrever_log(f"Log do BAT será salvo em: {log_bat}")
                 gui.escrever_log("Preparando atualização final...")
 
-                # Fecha app principal na thread principal
+                # Fecha GUI e app antes de rodar BAT
                 gui.fechar()
                 app.after(500, lambda: app.quit())
                 app.after(500, lambda: app.destroy())
@@ -146,10 +154,6 @@ del "%~f0"
 
     except Exception as e:
         messagebox.showerror("Erro", f"Falha ao buscar atualização:\n{e}", parent=app)
-        # Salva erro no log
-        with open(LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(f"[ERRO] {e}\n")
-
 
 def verificar_dependencias():
     """Verifica se todas as dependências estão disponíveis - útil para debug"""
