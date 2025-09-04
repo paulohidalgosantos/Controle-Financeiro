@@ -26,19 +26,27 @@ import threading
 
 VERSAO_ATUAL = "1.1.3"
 
-
 def buscar_atualizacao(app):
-    """Verifica se existe uma nova versão e atualiza o app em 1 exe, com log externo."""
-
+    """Verifica se existe uma nova versão e atualiza o app em 1 exe, salvando log em arquivo."""
     try:
+        # Caminho do log de atualização
+        LOG_PATH = os.path.join(BASE_DIR, "update_log.txt")
+        # Limpa log anterior
+        with open(LOG_PATH, "w", encoding="utf-8") as f:
+            f.write(f"Iniciando verificação de atualização em {datetime.now()}\n")
+
         # URL do arquivo de versão no GitHub (somente o número da versão)
         url_versao = "https://raw.githubusercontent.com/paulohidalgosantos/Controle-Financeiro/main/versao.txt"
         with urllib.request.urlopen(url_versao) as response:
             versao_nova = response.read().decode("utf-8").strip()
 
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"Versão atual: {VERSAO_ATUAL}, versão nova: {versao_nova}\n")
+
         if versao_nova == VERSAO_ATUAL:
-            messagebox.showinfo(
-                "Atualização", "Você já possui a versão mais recente.", parent=app)
+            messagebox.showinfo("Atualização", "Você já possui a versão mais recente.", parent=app)
+            with open(LOG_PATH, "a", encoding="utf-8") as f:
+                f.write("Nenhuma atualização disponível.\n")
             return
 
         resposta = messagebox.askyesno(
@@ -47,6 +55,8 @@ def buscar_atualizacao(app):
             parent=app
         )
         if not resposta:
+            with open(LOG_PATH, "a", encoding="utf-8") as f:
+                f.write("Usuário cancelou a atualização.\n")
             return
 
         # ------------------- GUI de progresso -------------------
@@ -67,14 +77,16 @@ def buscar_atualizacao(app):
                     self.root, wrap=tk.WORD, height=15, width=70, state="disabled")
                 self.text_area.pack(padx=10, pady=10, fill="both", expand=True)
 
-                self.progress = ttk.Progressbar(
-                    self.root, mode="indeterminate")
+                self.progress = ttk.Progressbar(self.root, mode="indeterminate")
                 self.progress.pack(fill="x", padx=10, pady=10)
                 self.progress.start(10)
 
             def escrever_log(self, msg):
-                # Atualiza GUI na thread principal
+                # Atualiza GUI
                 self.root.after(0, self._escrever_gui, msg)
+                # Salva no log
+                with open(LOG_PATH, "a", encoding="utf-8") as f:
+                    f.write(msg + "\n")
 
             def _escrever_gui(self, msg):
                 self.text_area.configure(state="normal")
@@ -91,10 +103,7 @@ def buscar_atualizacao(app):
         def atualizar():
             try:
                 tempdir = tempfile.mkdtemp()
-                log_path = os.path.join(
-                    tempdir, "ControleFinanceiro_update_log.txt")
                 gui.escrever_log(f"Temp dir criada: {tempdir}")
-                gui.escrever_log(f"Log de atualização: {log_path}")
 
                 # URL do novo exe
                 url_download = f"https://github.com/paulohidalgosantos/Controle-Financeiro/releases/download/v{versao_nova}/Controle.Financeiro.exe"
@@ -107,25 +116,18 @@ def buscar_atualizacao(app):
                 exe_path = sys.executable  # caminho do exe atual
                 bat_path = os.path.join(tempdir, "update.bat")
 
-                # Cria batch temporário para substituir exe e reiniciar
                 with open(bat_path, "w", encoding="utf-8") as f:
                     f.write(f"""
 @echo off
-ping 127.0.0.1 -n 6 >nul
-echo Iniciando atualização >> "{log_path}"
-copy /y "{temp_exe}" "{exe_path}" >> "{log_path}" 2>&1
-if %errorlevel% neq 0 (
-    echo ERRO ao copiar exe >> "{log_path}"
-) else (
-    echo Atualização concluída com sucesso >> "{log_path}"
-)
+ping 127.0.0.1 -n 3 >nul
+copy /y "{temp_exe}" "{exe_path}"
 start "" "{exe_path}"
 del "%~f0"
 """)
 
                 gui.escrever_log("Preparando atualização final...")
 
-                # Fecha GUI e app principal
+                # Fecha app principal na thread principal
                 gui.fechar()
                 app.after(500, lambda: app.quit())
                 app.after(500, lambda: app.destroy())
@@ -143,8 +145,10 @@ del "%~f0"
         gui.root.mainloop()
 
     except Exception as e:
-        messagebox.showerror(
-            "Erro", f"Falha ao buscar atualização:\n{e}", parent=app)
+        messagebox.showerror("Erro", f"Falha ao buscar atualização:\n{e}", parent=app)
+        # Salva erro no log
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"[ERRO] {e}\n")
 
 
 def verificar_dependencias():
