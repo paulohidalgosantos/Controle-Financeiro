@@ -24,7 +24,7 @@ import zipfile
 import threading
 
 
-VERSAO_ATUAL = "1.1.3"
+VERSAO_ATUAL = "1.1.2"
 
 
 def buscar_atualizacao():
@@ -36,13 +36,8 @@ def buscar_atualizacao():
             versao_nova = response.read().decode("utf-8").strip()
 
         if versao_nova == VERSAO_ATUAL:
-            messagebox.showinfo(
-                "Atualização", "Você já possui a versão mais recente.")
+            messagebox.showinfo("Atualização", "Você já possui a versão mais recente.")
             return
-
-        # URL do zip da atualização correspondente à nova versão
-        url_download = f"https://github.com/paulohidalgosantos/Controle-Financeiro/releases/download/v{versao_nova}/Controle.Financeiro.exe"
-
 
         resposta = messagebox.askyesno(
             "Atualização disponível",
@@ -69,8 +64,7 @@ def buscar_atualizacao():
                     self.root, wrap=tk.WORD, height=15, width=70, state="disabled")
                 self.text_area.pack(padx=10, pady=10, fill="both", expand=True)
 
-                self.progress = ttk.Progressbar(
-                    self.root, mode="indeterminate")
+                self.progress = ttk.Progressbar(self.root, mode="indeterminate")
                 self.progress.pack(fill="x", padx=10, pady=10)
                 self.progress.start(10)
 
@@ -89,33 +83,29 @@ def buscar_atualizacao():
                 tempdir = tempfile.mkdtemp()
                 gui.escrever_log(f"Temp dir criada: {tempdir}")
 
-                # Baixa o zip da atualização
-                zip_path = os.path.join(tempdir, "update.zip")
+                # URL do novo exe
+                url_download = f"https://github.com/paulohidalgosantos/Controle-Financeiro/releases/download/v{versao_nova}/Controle.Financeiro.exe"
+                temp_exe = os.path.join(tempdir, "Controle.Financeiro.exe")
+
                 gui.escrever_log(f"Baixando atualização de {url_download}...")
-                urllib.request.urlretrieve(url_download, zip_path)
+                urllib.request.urlretrieve(url_download, temp_exe)
                 gui.escrever_log("Download concluído.")
 
-                # Extrai o zip temporário
-                gui.escrever_log("Extraindo arquivos...")
-                with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                    zip_ref.extractall(tempdir)
-                gui.escrever_log("Extração concluída.")
-
-                # Cria batch temporário para substituir arquivos e reiniciar exe
-                exe_path = sys.executable
+                exe_path = sys.executable  # caminho do exe atual
                 bat_path = os.path.join(tempdir, "update.bat")
+
+                # Cria batch temporário para substituir exe e reiniciar
                 with open(bat_path, "w", encoding="utf-8") as f:
                     f.write(f"""
 @echo off
 ping 127.0.0.1 -n 3 >nul
-xcopy /y /e "{tempdir}\\*" "{os.path.dirname(exe_path)}"
+copy /y "{temp_exe}" "{exe_path}"
 start "" "{exe_path}"
 del "%~f0"
 """)
                 gui.escrever_log("Preparando atualização final...")
                 subprocess.Popen([bat_path], shell=True)
-                gui.escrever_log(
-                    "Atualização iniciada. O aplicativo será fechado.")
+                gui.escrever_log("Atualização iniciada. O aplicativo será fechado.")
                 time.sleep(1)
                 sys.exit()
 
@@ -128,7 +118,6 @@ del "%~f0"
 
     except Exception as e:
         messagebox.showerror("Erro", f"Falha ao buscar atualização:\n{e}")
-
 
 def verificar_dependencias():
     """Verifica se todas as dependências estão disponíveis - útil para debug"""
