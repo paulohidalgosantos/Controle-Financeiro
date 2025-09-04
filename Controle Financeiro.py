@@ -19,26 +19,22 @@ import webbrowser
 import urllib.request
 import locale
 
-VERSAO_ATUAL = "1.1.3"
+VERSAO_ATUAL = "1.1.2"
 
 def buscar_atualizacao():
     """Verifica se existe uma nova versão e atualiza o app em 1 exe."""
-
     try:
+        # URL do arquivo de versão no GitHub (somente o número da versão)
         url_versao = "https://raw.githubusercontent.com/paulohidalgosantos/Controle-Financeiro/main/versao.txt"
         with urllib.request.urlopen(url_versao) as response:
-            conteudo = response.read().decode("utf-8").strip()
-
-        dados = conteudo.split(";")
-        if len(dados) < 2:
-            messagebox.showerror("Erro", "Arquivo de versão inválido no servidor.")
-            return
-
-        versao_nova, url_download = dados[0], dados[1]
+            versao_nova = response.read().decode("utf-8").strip()
 
         if versao_nova == VERSAO_ATUAL:
             messagebox.showinfo("Atualização", "Você já possui a versão mais recente.")
             return
+
+        # URL do zip da atualização correspondente à nova versão
+        url_download = f"https://github.com/paulohidalgosantos/Controle-Financeiro/releases/download/{versao_nova}/Controle_Financeiro.zip"
 
         resposta = messagebox.askyesno(
             "Atualização disponível",
@@ -47,7 +43,7 @@ def buscar_atualizacao():
         if not resposta:
             return
 
-        # Mostrar GUI de progresso
+        # ------------------- GUI de progresso -------------------
         class UpdaterGUI:
             def __init__(self):
                 self.root = tk.Toplevel()
@@ -78,22 +74,25 @@ def buscar_atualizacao():
 
         gui = UpdaterGUI()
 
+        # ------------------- Função de atualização -------------------
         def atualizar():
             try:
                 tempdir = tempfile.mkdtemp()
                 gui.escrever_log(f"Temp dir criada: {tempdir}")
 
+                # Baixa o zip da atualização
                 zip_path = os.path.join(tempdir, "update.zip")
                 gui.escrever_log(f"Baixando atualização de {url_download}...")
                 urllib.request.urlretrieve(url_download, zip_path)
                 gui.escrever_log("Download concluído.")
 
+                # Extrai o zip temporário
                 gui.escrever_log("Extraindo arquivos...")
                 with zipfile.ZipFile(zip_path, "r") as zip_ref:
                     zip_ref.extractall(tempdir)
                 gui.escrever_log("Extração concluída.")
 
-                # Criar batch temporário para substituir arquivos e reiniciar exe
+                # Cria batch temporário para substituir arquivos e reiniciar exe
                 exe_path = sys.executable
                 bat_path = os.path.join(tempdir, "update.bat")
                 with open(bat_path, "w", encoding="utf-8") as f:
@@ -119,7 +118,7 @@ del "%~f0"
 
     except Exception as e:
         messagebox.showerror("Erro", f"Falha ao buscar atualização:\n{e}")
-        
+
 def verificar_dependencias():
     """Verifica se todas as dependências estão disponíveis - útil para debug"""
     try:
