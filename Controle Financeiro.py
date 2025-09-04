@@ -24,7 +24,7 @@ import zipfile
 import threading
 
 
-VERSAO_ATUAL = "1.1.2"
+VERSAO_ATUAL = "1.1.3"
 
 
 def buscar_atualizacao(app):
@@ -568,7 +568,7 @@ def criar_menu():
         (" 👥     Gerenciar Usuários", gerenciar_usuarios),
         (" 💳    Gerenciar Cartões", gerenciar_cartoes),
         (" 📂     Categorias de Gastos", abrir_gerenciador_categorias),
-        (" 🔄     Buscar Atualização", buscar_atualizacao),
+        (" 🔄     Buscar Atualização", buscar_atualizacao(app)),
         (" 🗑️ Zerar Aplicativo", zerar_tudo),
         (" 📤     Exportar Dados", exportar_dados),
         (" 📥     Importar Dados", importar_dados),
