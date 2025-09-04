@@ -19,7 +19,7 @@ import webbrowser
 import urllib.request
 import locale
 
-VERSAO_ATUAL = "1.1.2"
+VERSAO_ATUAL = "1.1.3"
 def buscar_atualizacao():
     """Verifica se existe uma nova versão e chama o updater se necessário."""
     try:
