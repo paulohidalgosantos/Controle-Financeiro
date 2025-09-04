@@ -27,7 +27,7 @@ import threading
 VERSAO_ATUAL = "1.1.2"
 
 
-def buscar_atualizacao():
+def buscar_atualizacao(app):
     """Verifica se existe uma nova versão e atualiza o app em 1 exe."""
     try:
         # URL do arquivo de versão no GitHub (somente o número da versão)
@@ -36,12 +36,13 @@ def buscar_atualizacao():
             versao_nova = response.read().decode("utf-8").strip()
 
         if versao_nova == VERSAO_ATUAL:
-            messagebox.showinfo("Atualização", "Você já possui a versão mais recente.")
+            messagebox.showinfo("Atualização", "Você já possui a versão mais recente.", parent=app)
             return
 
         resposta = messagebox.askyesno(
             "Atualização disponível",
-            f"Versão {versao_nova} disponível.\nDeseja atualizar agora?"
+            f"Versão {versao_nova} disponível.\nDeseja atualizar agora?",
+            parent=app
         )
         if not resposta:
             return
@@ -49,7 +50,7 @@ def buscar_atualizacao():
         # ------------------- GUI de progresso -------------------
         class UpdaterGUI:
             def __init__(self):
-                self.root = tk.Toplevel()
+                self.root = tk.Toplevel(app)
                 self.root.title("Atualizando Controle Financeiro")
                 self.root.geometry("600x400")
 
@@ -103,21 +104,28 @@ copy /y "{temp_exe}" "{exe_path}"
 start "" "{exe_path}"
 del "%~f0"
 """)
+
                 gui.escrever_log("Preparando atualização final...")
-                subprocess.Popen([bat_path], shell=True)
-                gui.escrever_log("Atualização iniciada. O aplicativo será fechado.")
+
+                # Fecha app principal antes de iniciar batch
+                gui.escrever_log("Fechando aplicativo atual...")
+                gui.root.destroy()
+                app.quit()
+                app.destroy()
                 time.sleep(1)
+
+                subprocess.Popen([bat_path], shell=True)
                 sys.exit()
 
             except Exception as e:
                 gui.escrever_log(f"[ERRO] {e}")
-                messagebox.showerror("Erro", f"Falha na atualização:\n{e}")
+                messagebox.showerror("Erro", f"Falha na atualização:\n{e}", parent=app)
 
         threading.Thread(target=atualizar, daemon=True).start()
         gui.root.mainloop()
 
     except Exception as e:
-        messagebox.showerror("Erro", f"Falha ao buscar atualização:\n{e}")
+        messagebox.showerror("Erro", f"Falha ao buscar atualização:\n{e}", parent=app)
 
 def verificar_dependencias():
     """Verifica se todas as dependências estão disponíveis - útil para debug"""
