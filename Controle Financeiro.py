@@ -24,8 +24,8 @@ import zipfile
 import threading
 
 
-
 VERSAO_ATUAL = "1.1.3"
+
 
 def buscar_atualizacao():
     """Verifica se existe uma nova versão e atualiza o app em 1 exe."""
@@ -36,11 +36,12 @@ def buscar_atualizacao():
             versao_nova = response.read().decode("utf-8").strip()
 
         if versao_nova == VERSAO_ATUAL:
-            messagebox.showinfo("Atualização", "Você já possui a versão mais recente.")
+            messagebox.showinfo(
+                "Atualização", "Você já possui a versão mais recente.")
             return
 
         # URL do zip da atualização correspondente à nova versão
-        url_download = f"https://github.com/paulohidalgosantos/Controle-Financeiro/releases/download/{versao_nova}/Controle_Financeiro.zip"
+        url_download = f"https://github.com/paulohidalgosantos/Controle-Financeiro/releases/download/{versao_nova}/Controle.Financeiro.zip"
 
         resposta = messagebox.askyesno(
             "Atualização disponível",
@@ -67,7 +68,8 @@ def buscar_atualizacao():
                     self.root, wrap=tk.WORD, height=15, width=70, state="disabled")
                 self.text_area.pack(padx=10, pady=10, fill="both", expand=True)
 
-                self.progress = ttk.Progressbar(self.root, mode="indeterminate")
+                self.progress = ttk.Progressbar(
+                    self.root, mode="indeterminate")
                 self.progress.pack(fill="x", padx=10, pady=10)
                 self.progress.start(10)
 
@@ -111,7 +113,8 @@ del "%~f0"
 """)
                 gui.escrever_log("Preparando atualização final...")
                 subprocess.Popen([bat_path], shell=True)
-                gui.escrever_log("Atualização iniciada. O aplicativo será fechado.")
+                gui.escrever_log(
+                    "Atualização iniciada. O aplicativo será fechado.")
                 time.sleep(1)
                 sys.exit()
 
@@ -124,6 +127,7 @@ del "%~f0"
 
     except Exception as e:
         messagebox.showerror("Erro", f"Falha ao buscar atualização:\n{e}")
+
 
 def verificar_dependencias():
     """Verifica se todas as dependências estão disponíveis - útil para debug"""
