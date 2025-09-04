@@ -499,7 +499,6 @@ def show_warning(msg, title="Aviso"):
     """Exibe uma mensagem de aviso usando a janela principal como parent."""
     messagebox.showwarning(title, msg, parent=app)
 
-
 def show_error(msg, title="Erro"):
     """Exibe uma mensagem de erro usando a janela principal como parent."""
     messagebox.showerror(title, msg, parent=app)
@@ -568,7 +567,7 @@ def criar_menu():
         (" 👥     Gerenciar Usuários", gerenciar_usuarios),
         (" 💳    Gerenciar Cartões", gerenciar_cartoes),
         (" 📂     Categorias de Gastos", abrir_gerenciador_categorias),
-        (" 🔄     Buscar Atualização", buscar_atualizacao(app)),
+        (" 🔄     Buscar Atualização", partial(buscar_atualizacao, app)),
         (" 🗑️ Zerar Aplicativo", zerar_tudo),
         (" 📤     Exportar Dados", exportar_dados),
         (" 📥     Importar Dados", importar_dados),
