@@ -18,8 +18,13 @@ import subprocess
 import webbrowser
 import urllib.request
 import locale
+from tkinter import scrolledtext
+import tempfile
+import zipfile
 
-VERSAO_ATUAL = "1.1.2"
+
+
+VERSAO_ATUAL = "1.1.3"
 
 def buscar_atualizacao():
     """Verifica se existe uma nova versão e atualiza o app em 1 exe."""
