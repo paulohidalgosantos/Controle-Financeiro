@@ -41,7 +41,8 @@ def buscar_atualizacao():
             return
 
         # URL do zip da atualização correspondente à nova versão
-        url_download = f"https://github.com/paulohidalgosantos/Controle-Financeiro/releases/download/{versao_nova}/Controle.Financeiro.zip"
+        url_download = f"https://github.com/paulohidalgosantos/Controle-Financeiro/releases/download/v{versao_nova}/Controle.Financeiro.exe"
+
 
         resposta = messagebox.askyesno(
             "Atualização disponível",
