@@ -41,13 +41,14 @@ datas = [
 
 # --------- Analysis ----------
 a = Analysis(
-    ['Controle Financeiro.py'],  # seu script principal .py
+    ['Controle Financeiro.py'],  # seu script principal
     pathex=[project_dir],
     binaries=dlls_to_include,
     datas=datas,
     hiddenimports=[
         'tkinter', 'tkinter.ttk', 'tkinter.messagebox',
-        'PIL.Image', 'PIL.ImageTk', 'ttkbootstrap', 'ttkbootstrap.constants'
+        'PIL.Image', 'PIL.ImageTk', 'ttkbootstrap', 'ttkbootstrap.constants',
+        '_socket', 'ssl', '_ssl'   # <-- adicionados para corrigir erro de rede
     ],
     hookspath=[],
     hooksconfig={},
@@ -73,6 +74,6 @@ exe = EXE(
     strip=False,
     upx=True,
     upx_exclude=[dll[0] for dll in dlls_to_include],
-    console=True,  # CONSOLE ATIVO PARA LOGS DO UPDATER
+    console=True,  # console ativo para logs do updater
     icon=icon_path
 )
