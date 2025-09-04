@@ -28,7 +28,8 @@ VERSAO_ATUAL = "1.1.3"
 
 
 def buscar_atualizacao(app):
-    """Verifica se existe uma nova versão e atualiza o app em 1 exe."""
+    """Verifica se existe uma nova versão e atualiza o app em 1 exe, com log externo."""
+
     try:
         # URL do arquivo de versão no GitHub (somente o número da versão)
         url_versao = "https://raw.githubusercontent.com/paulohidalgosantos/Controle-Financeiro/main/versao.txt"
@@ -72,7 +73,7 @@ def buscar_atualizacao(app):
                 self.progress.start(10)
 
             def escrever_log(self, msg):
-                # Atualiza a GUI na thread principal
+                # Atualiza GUI na thread principal
                 self.root.after(0, self._escrever_gui, msg)
 
             def _escrever_gui(self, msg):
@@ -90,7 +91,10 @@ def buscar_atualizacao(app):
         def atualizar():
             try:
                 tempdir = tempfile.mkdtemp()
+                log_path = os.path.join(
+                    tempdir, "ControleFinanceiro_update_log.txt")
                 gui.escrever_log(f"Temp dir criada: {tempdir}")
+                gui.escrever_log(f"Log de atualização: {log_path}")
 
                 # URL do novo exe
                 url_download = f"https://github.com/paulohidalgosantos/Controle-Financeiro/releases/download/v{versao_nova}/Controle.Financeiro.exe"
@@ -100,25 +104,28 @@ def buscar_atualizacao(app):
                 urllib.request.urlretrieve(url_download, temp_exe)
                 gui.escrever_log("Download concluído.")
 
-                # Caminho do app atual (respeita nome do usuário e pasta)
-                exe_path = os.path.abspath(sys.argv[0])
-                gui.escrever_log(f"Caminho do app atual: {exe_path}")
-
+                exe_path = sys.executable  # caminho do exe atual
                 bat_path = os.path.join(tempdir, "update.bat")
 
                 # Cria batch temporário para substituir exe e reiniciar
                 with open(bat_path, "w", encoding="utf-8") as f:
                     f.write(f"""
 @echo off
-ping 127.0.0.1 -n 3 >nul
-copy /y "{temp_exe}" "{exe_path}"
+ping 127.0.0.1 -n 6 >nul
+echo Iniciando atualização >> "{log_path}"
+copy /y "{temp_exe}" "{exe_path}" >> "{log_path}" 2>&1
+if %errorlevel% neq 0 (
+    echo ERRO ao copiar exe >> "{log_path}"
+) else (
+    echo Atualização concluída com sucesso >> "{log_path}"
+)
 start "" "{exe_path}"
 del "%~f0"
 """)
 
                 gui.escrever_log("Preparando atualização final...")
 
-                # Fecha app principal na thread principal
+                # Fecha GUI e app principal
                 gui.fechar()
                 app.after(500, lambda: app.quit())
                 app.after(500, lambda: app.destroy())
