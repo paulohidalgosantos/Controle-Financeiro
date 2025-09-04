@@ -26,7 +26,6 @@ import threading
 
 VERSAO_ATUAL = "1.1.3"
 
-
 def buscar_atualizacao(app):
     """Verifica se existe uma nova versão e atualiza o app em 1 exe."""
     try:
@@ -70,11 +69,17 @@ def buscar_atualizacao(app):
                 self.progress.start(10)
 
             def escrever_log(self, msg):
+                # Garantir que a atualização da GUI seja feita na thread principal
+                self.root.after(0, self._escrever_gui, msg)
+
+            def _escrever_gui(self, msg):
                 self.text_area.configure(state="normal")
                 self.text_area.insert(tk.END, msg + "\n")
                 self.text_area.configure(state="disabled")
                 self.text_area.see(tk.END)
-                self.root.update()
+
+            def fechar(self):
+                self.root.after(0, self.root.destroy)
 
         gui = UpdaterGUI()
 
@@ -95,7 +100,6 @@ def buscar_atualizacao(app):
                 exe_path = sys.executable  # caminho do exe atual
                 bat_path = os.path.join(tempdir, "update.bat")
 
-                # Cria batch temporário para substituir exe e reiniciar
                 with open(bat_path, "w", encoding="utf-8") as f:
                     f.write(f"""
 @echo off
@@ -107,19 +111,19 @@ del "%~f0"
 
                 gui.escrever_log("Preparando atualização final...")
 
-                # Fecha app principal antes de iniciar batch
-                gui.escrever_log("Fechando aplicativo atual...")
-                gui.root.destroy()
-                app.quit()
-                app.destroy()
-                time.sleep(1)
+                # Fecha app principal na thread principal
+                gui.fechar()
+                app.after(500, lambda: app.quit())
+                app.after(500, lambda: app.destroy())
 
+                time.sleep(1)
                 subprocess.Popen([bat_path], shell=True)
                 sys.exit()
 
             except Exception as e:
                 gui.escrever_log(f"[ERRO] {e}")
-                messagebox.showerror("Erro", f"Falha na atualização:\n{e}", parent=app)
+                app.after(0, lambda: messagebox.showerror(
+                    "Erro", f"Falha na atualização:\n{e}", parent=app))
 
         threading.Thread(target=atualizar, daemon=True).start()
         gui.root.mainloop()
