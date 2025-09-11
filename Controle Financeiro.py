@@ -24,136 +24,127 @@ import zipfile
 import threading
 
 
-VERSAO_ATUAL = "1.1.2"
+VERSAO_ATUAL = "1.1.3"
 
 def buscar_atualizacao(app):
-    """Verifica se existe uma nova versão e atualiza o app em 1 exe."""
+    """Verifica atualização no GitHub e aplica com log contínuo."""
     try:
-        # URL do arquivo de versão no GitHub (somente o número da versão)
-        url_versao = "https://raw.githubusercontent.com/paulohidalgosantos/Controle-Financeiro/main/versao.txt"
-        with urllib.request.urlopen(url_versao) as response:
-            versao_nova = response.read().decode("utf-8").strip()
+        import urllib.request, tempfile, threading, subprocess, sys, os
+        from tkinter import scrolledtext, messagebox, ttk, Toplevel, Label, END
+        from datetime import datetime
 
-        if versao_nova == VERSAO_ATUAL:
+        # Diretório de log
+        log_dir = os.path.join(os.path.expanduser("~"), "ControleFinanceiroLogs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, "update_bat_log.txt")
+
+        def escrever_log(msg):
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            linha = f"[{ts}] {msg}"
+            print(linha)
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(linha + "\n")
+
+        escrever_log("Iniciando verificação de atualização...")
+
+        # Buscar versão online
+        url_versao = "https://raw.githubusercontent.com/paulohidalgosantos/Controle-Financeiro/main/versao.txt"
+        with urllib.request.urlopen(url_versao) as r:
+            versao_online = r.read().decode().strip()
+
+        escrever_log(f"Versão online: {versao_online}")
+        escrever_log(f"Versão atual: {VERSAO_ATUAL}")
+
+        if versao_online == VERSAO_ATUAL:
             messagebox.showinfo("Atualização", "Você já possui a versão mais recente.", parent=app)
             return
 
-        resposta = messagebox.askyesno(
-            "Atualização disponível",
-            f"Versão {versao_nova} disponível.\nDeseja atualizar agora?",
-            parent=app
-        )
-        if not resposta:
+        if not messagebox.askyesno("Atualização disponível",
+                                   f"Versão {versao_online} disponível.\nDeseja atualizar agora?",
+                                   parent=app):
+            escrever_log("Usuário cancelou atualização.")
             return
 
-        # ------------------- GUI de progresso -------------------
+        # --- GUI de progresso ---
         class UpdaterGUI:
             def __init__(self):
-                self.root = tk.Toplevel(app)
+                self.root = Toplevel(app)
                 self.root.title("Atualizando Controle Financeiro")
                 self.root.geometry("600x400")
-
-                self.label_status = ttk.Label(
-                    self.root,
-                    text=f"Atualizando da versão {VERSAO_ATUAL} para {versao_nova}...",
-                    font=("Segoe UI", 12)
-                )
-                self.label_status.pack(pady=10)
-
-                self.text_area = scrolledtext.ScrolledText(
-                    self.root, wrap=tk.WORD, height=15, width=70, state="disabled")
-                self.text_area.pack(padx=10, pady=10, fill="both", expand=True)
-
+                Label(self.root, text=f"Atualizando {VERSAO_ATUAL} → {versao_online}").pack(pady=5)
+                self.text = scrolledtext.ScrolledText(self.root, height=15, width=70, state="disabled")
+                self.text.pack(padx=10, pady=10, fill="both", expand=True)
                 self.progress = ttk.Progressbar(self.root, mode="indeterminate")
                 self.progress.pack(fill="x", padx=10, pady=10)
                 self.progress.start(10)
 
-            def escrever_log(self, msg):
-                self.root.after(0, self._escrever_gui, msg)
-
-            def _escrever_gui(self, msg):
-                self.text_area.configure(state="normal")
-                self.text_area.insert(tk.END, msg + "\n")
-                self.text_area.configure(state="disabled")
-                self.text_area.see(tk.END)
+            def log(self, msg):
+                ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                linha = f"[{ts}] {msg}"
+                self.text.configure(state="normal")
+                self.text.insert(END, linha + "\n")
+                self.text.configure(state="disabled")
+                self.text.see(END)
+                escrever_log(msg)
 
             def fechar(self):
                 self.root.after(0, self.root.destroy)
 
         gui = UpdaterGUI()
 
-        # ------------------- Função de atualização -------------------
-        def atualizar():
+        def atualizar_thread():
             try:
-                # Diretório temporário
-                tempdir = tempfile.mkdtemp()
-                gui.escrever_log(f"Temp dir criada: {tempdir}")
+                gui.log("Criando diretório temporário...")
+                temp_dir = tempfile.mkdtemp()
+                temp_exe = os.path.join(temp_dir, "Controle.Financeiro.exe")
+                gui.log(f"Temp dir: {temp_dir}")
 
-                # URL do novo exe
-                url_download = f"https://github.com/paulohidalgosantos/Controle-Financeiro/releases/download/v{versao_nova}/Controle.Financeiro.exe"
-                temp_exe = os.path.join(tempdir, "Controle.Financeiro.exe")
-
-                gui.escrever_log(f"Baixando atualização de {url_download}...")
+                url_download = f"https://github.com/paulohidalgosantos/Controle-Financeiro/releases/download/v{versao_online}/Controle.Financeiro.exe"
+                gui.log(f"Baixando: {url_download}")
                 urllib.request.urlretrieve(url_download, temp_exe)
-                gui.escrever_log("Download concluído.")
+                gui.log("Download concluído.")
 
-                # Detecta o caminho do exe atual corretamente
-                if getattr(sys, 'frozen', False):
-                    exe_path = sys.executable  # se empacotado com PyInstaller
-                else:
-                    exe_path = os.path.abspath(__file__)  # se rodando do .py
+                exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+                gui.log(f"Exe atual: {exe_path}")
+                gui.log(f"Novo exe temporário: {temp_exe}")
 
-                bat_path = os.path.join(tempdir, "update.bat")
-
-                # Diretório fixo para log do BAT
-                log_dir = os.path.join(os.path.expanduser("~"), "ControleFinanceiroLogs")
-                os.makedirs(log_dir, exist_ok=True)
-                log_bat = os.path.join(log_dir, "update_bat_log.txt")
-
-                # Criando BAT
+                # Criação do BAT
+                bat_path = os.path.join(temp_dir, "update.bat")
                 with open(bat_path, "w", encoding="utf-8") as f:
-                    f.write(f"""
-@echo off
-set log_path="{log_bat}"
-echo [%%date%% %%time%%] [BAT] Iniciando processo de atualização >> %%log_path%%
-timeout /t 3 /nobreak >nul
-echo [%%date%% %%time%%] [BAT] Copiando novo exe... >> %%log_path%%
-copy /y "{temp_exe}" "{exe_path}" >> %%log_path%% 2>&1
-if %%errorlevel%% neq 0 (
-    echo [%%date%% %%time%%] [BAT] ERRO ao copiar novo exe >> %%log_path%%
-    exit /b %%errorlevel%%
+                    f.write(f"""@echo off
+chcp 65001 >nul
+set "old_exe={exe_path}"
+set "new_exe={temp_exe}"
+set "log_path={log_path}"
+
+:WAIT_LOOP
+tasklist /FI "IMAGENAME eq {os.path.basename(exe_path)}" 2>nul | find /I "{os.path.basename(exe_path)}" >nul
+if %ERRORLEVEL%==0 (
+    timeout /t 1 >nul
+    goto WAIT_LOOP
 )
-echo [%%date%% %%time%%] [BAT] Reiniciando aplicativo... >> %%log_path%%
-start "" "{exe_path}"
-echo [%%date%% %%time%%] [BAT] Atualização concluída com sucesso >> %%log_path%%
-del "%%~f0"
+
+if exist "%old_exe%" move /y "%old_exe%" "%old_exe%.bak" >> "%log_path%" 2>&1
+move /y "%new_exe%" "%old_exe%" >> "%log_path%" 2>&1
+start "" "%old_exe%" >> "%log_path%" 2>&1
+del "%~f0"
 """)
-
-                gui.escrever_log(f"Caminho do exe atual: {exe_path}")
-                gui.escrever_log(f"Caminho do novo exe temporário: {temp_exe}")
-                gui.escrever_log(f"Caminho do script .bat: {bat_path}")
-                gui.escrever_log(f"Log do BAT será salvo em: {log_bat}")
-                gui.escrever_log("Preparando atualização final...")
-
-                # Fecha GUI e app antes de rodar BAT
+                gui.log(f"BAT criado: {bat_path}")
+                gui.log("Fechando app para atualização...")
                 gui.fechar()
-                app.after(500, lambda: app.quit())
-                app.after(500, lambda: app.destroy())
-
-                time.sleep(1)
-                subprocess.Popen([bat_path], shell=True)
+                app.quit()
+                subprocess.Popen(["cmd", "/c", bat_path], shell=True)
                 sys.exit()
 
             except Exception as e:
-                gui.escrever_log(f"[ERRO] {e}")
-                app.after(0, lambda: messagebox.showerror(
-                    "Erro", f"Falha na atualização:\n{e}", parent=app))
+                gui.log(f"ERRO: {e}")
 
-        threading.Thread(target=atualizar, daemon=True).start()
+        threading.Thread(target=atualizar_thread, daemon=True).start()
         gui.root.mainloop()
 
     except Exception as e:
         messagebox.showerror("Erro", f"Falha ao buscar atualização:\n{e}", parent=app)
+
 
 def verificar_dependencias():
     """Verifica se todas as dependências estão disponíveis - útil para debug"""
@@ -754,6 +745,81 @@ def abrir_gerenciador_categorias():
               font=("Inter", 15, "bold")).pack(pady=(0, 20))
     ttk.Button(main_frame, text="📝 Editar categorias", width=28,
                command=lambda: editar_tipos_gastos(janela), bootstyle="primary").pack(pady=10)
+
+
+def adicionar_cartao(janela_anterior=None):
+    if janela_anterior:
+        janela_anterior.destroy()
+
+    janela = tk.Toplevel(app)
+    janela.title("Adicionar Cartão")
+    janela.configure(bg="#f8f9fa")
+    largura, altura = 350, 280
+    centralizar_janela(janela, largura, altura)
+    janela.attributes("-topmost", True)
+    janela.grab_set()
+
+    main_frame = tk.Frame(janela, bg="#f8f9fa", padx=20, pady=20)
+    main_frame.pack(fill="both", expand=True)
+
+    ttk.Label(main_frame, text="Nome do Cartão:", font=("Inter", 11)).pack(pady=(10, 5))
+    entrada_nome = ttk.Entry(main_frame, font=("Inter", 10))
+    entrada_nome.pack(pady=5, fill="x")
+
+    ttk.Label(main_frame, text="Dia de Fechamento da Fatura (1-31):", font=("Inter", 11)).pack(pady=(15, 5))
+    entrada_fechamento = ttk.Entry(main_frame, font=("Inter", 10))
+    entrada_fechamento.pack(pady=5, fill="x")
+
+    def mostrar_erro(mensagem):
+        erro_janela = tk.Toplevel(janela)
+        erro_janela.title("Erro")
+        erro_janela.geometry("330x110")
+        erro_janela.attributes("-topmost", True)
+        erro_janela.grab_set()
+        frame = tk.Frame(erro_janela, padx=15, pady=15)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=mensagem, foreground="#dc3545", wraplength=300, font=("Inter", 10)).pack(pady=10)
+        ttk.Button(frame, text="OK", command=erro_janela.destroy, bootstyle="danger").pack()
+        aplicar_icone(erro_janela)
+
+        erro_janela.update_idletasks()
+        w = erro_janela.winfo_width()
+        h = erro_janela.winfo_height()
+        x = janela.winfo_rootx() + (janela.winfo_width() // 2) - (w // 2)
+        y = janela.winfo_rooty() + (janela.winfo_height() // 2) - (h // 2)
+        erro_janela.geometry(f"+{x}+{y}")
+
+    def salvar():
+        nome = entrada_nome.get().strip()
+        fechamento_str = entrada_fechamento.get().strip()
+
+        if not nome:
+            mostrar_erro("O nome do cartão não pode estar vazio.")
+            return
+        if not fechamento_str.isdigit():
+            mostrar_erro("Dia de fechamento deve ser um número entre 1 e 31.")
+            return
+        fechamento = int(fechamento_str)
+        if not (1 <= fechamento <= 31):
+            mostrar_erro("Dia de fechamento deve estar entre 1 e 31.")
+            return
+
+        # Verificar duplicidade
+        for c in cartoes:
+            if c['nome'].lower() == nome.lower():
+                mostrar_erro("Já existe um cartão com esse nome.")
+                return
+
+        # Adiciona o cartão
+        cartoes.append({"nome": nome, "fechamento": fechamento})
+        salvar_dados()
+        atualizar_resumo()
+        janela.destroy()
+
+    ttk.Button(main_frame, text="💾 Salvar", command=salvar, bootstyle="success").pack(pady=20)
+    janela.bind("<Return>", lambda e: salvar())
+    aplicar_icone(janela)
+    entrada_nome.focus_set()
 
 
 def editar_cartao(janela_anterior):
@@ -1939,155 +2005,6 @@ def atualizar_resumo(*args):
         text=f"R$ {locale.currency(total_cartao, grouping=True).replace('R$', '').strip()}")
 
 
-def excluir_despesa_fixa(idx):
-    mes = combo_mes.current() + 1
-    ano = int(combo_ano.get())
-    chave_atual = get_chave(mes, ano)
-
-    if chave_atual not in dados:
-        return
-
-    try:
-        descricao_target = dados[chave_atual]["despesas_fixas"][idx]["descricao"]
-    except IndexError:
-        return
-
-    # Janela de confirmação personalizada
-    confirm_janela = tk.Toplevel(app)
-    confirm_janela.title("Confirmação")
-    largura, altura = 400, 180
-    x = (confirm_janela.winfo_screenwidth() // 2) - (largura // 2)
-    y = (confirm_janela.winfo_screenheight() // 2) - (altura // 2)
-    confirm_janela.geometry(f"{largura}x{altura}+{x}+{y}")
-    confirm_janela.attributes("-topmost", True)
-    confirm_janela.grab_set()
-    aplicar_icone(confirm_janela)
-
-    frame = tk.Frame(confirm_janela, padx=20, pady=20)
-    frame.pack(fill="both", expand=True)
-
-    ttk.Label(frame, text=f"Deseja realmente excluir a despesa fixa '{descricao_target}' a partir de {mes:02d}/{ano}?",
-              font=("Inter", 11), wraplength=360, justify="center").pack(pady=15)
-
-    def confirmar():
-        for ano_loop in range(ano, 2101):
-            for mes_loop in range(1, 13):
-                if ano_loop == ano and mes_loop < mes:
-                    continue
-                chave = get_chave(mes_loop, ano_loop)
-                if chave in dados:
-                    dados[chave]["despesas_fixas"] = [
-                        d for d in dados[chave]["despesas_fixas"]
-                        if d.get("descricao") != descricao_target
-                    ]
-        atualizar_resumo()
-        confirm_janela.destroy()
-
-    botoes = tk.Frame(frame)
-    botoes.pack()
-    ttk.Button(botoes, text="✓ Sim", command=confirmar,
-               bootstyle="danger").pack(side="left", padx=10)
-    ttk.Button(botoes, text="✗ Não", command=confirm_janela.destroy,
-               bootstyle="secondary").pack(side="right", padx=10)
-
-    # --- GASTOS DIÁRIOS ---
-    total_gastos = sum(g["valor"] for g in gastos_diarios)
-    criar_cabecalho_com_detalhes(
-        scroll_frame_gastos,
-        "Gastos Diários",
-        total_gastos,
-        lambda: adicionar_valor("Adicionar Gasto", "gasto"),
-        mostrar_gastos_detalhados
-    )
-
-    # --- CARTÃO DE CRÉDITO ---
-    gastos_por_cartao = {}
-    for c in cartoes:
-        nome = c.get("cartao", "Cartão")
-        gastos_por_cartao.setdefault(nome, []).append(c)
-
-    def cartao_pago(lista_gastos_cartao):
-        return all(g.get("status") == "Pago" for g in lista_gastos_cartao)
-
-    total_cartao_pago = 0
-    total_cartao_todos = 0
-    for nome_cartao, lista_gastos_cartao in gastos_por_cartao.items():
-        total_gastos_cartao = sum(g["valor"] for g in lista_gastos_cartao)
-        total_cartao_todos += total_gastos_cartao
-        if cartao_pago(lista_gastos_cartao):
-            total_cartao_pago += total_gastos_cartao
-
-    criar_cabecalho_com_detalhes(
-        scroll_frame_credito,
-        "Cartão de Crédito",
-        total_cartao_todos,
-        adicionar_cartao_credito,
-        abrir_cartao_credito_detalhado
-    )
-
-    # --- RESUMO ---
-    resumo_container = tk.Frame(frame_resumo, bg="#d9e3f1", padx=12, pady=8)
-    resumo_container.pack(fill="x", pady=(0, 5))
-
-    label_saldo_atual = tk.Label(
-        resumo_container,
-        text=f"💰 Saldo Atual: {locale.currency(saldo_atual, grouping=True)}",
-        font=("Inter", 12, "bold"),
-        bg="#d9e3f1",
-        fg=cor_saldo_atual
-    )
-    label_saldo_atual.pack(anchor="w", pady=(0, 2))
-
-    label_saldo_final = tk.Label(
-        resumo_container,
-        text=f"📊 Saldo Final: {locale.currency(saldo_final, grouping=True)}",
-        font=("Inter", 12, "bold"),
-        bg="#d9e3f1",
-        fg=cor_saldo_final
-    )
-    label_saldo_final.pack(anchor="w", pady=(0, 2))
-
-    # --- Gastos finais (diários + cartão) por tipo ---
-    gastos_por_tipo = {}
-    for g in gastos_diarios:
-        tipo = g.get("tipo", "Outros")
-        gastos_por_tipo[tipo] = gastos_por_tipo.get(
-            tipo, 0) + g.get("valor", 0)
-
-    for c in cartoes:
-        tipo = c.get("tipo", "Outros")
-        gastos_por_tipo[tipo] = gastos_por_tipo.get(
-            tipo, 0) + c.get("valor", 0)
-
-    label_gastos_tipo = tk.Label(
-        resumo_container,
-        text="📈 Gastos por Tipo:",
-        font=("Inter", 12, "bold"),
-        bg="#d9e3f1",
-        fg="#0d6efd"
-    )
-    label_gastos_tipo.pack(anchor="w", pady=(15, 5))
-
-    tipos = sorted(gastos_por_tipo.items(), key=lambda x: x[0])
-    max_por_linha = (len(tipos) + 1) // 2  # até 2 linhas
-
-    for linha in range(2):
-        frame_linha = tk.Frame(resumo_container, bg="#d9e3f1")
-        frame_linha.pack(anchor="w", pady=2)
-        for idx in range(linha * max_por_linha, min((linha + 1) * max_por_linha, len(tipos))):
-            tipo, valor = tipos[idx]
-            cor = "#0d6efd" if valor >= 0 else "#dc3545"
-            lbl = tk.Label(
-                frame_linha,
-                text=f"{tipo}: {locale.currency(valor, grouping=True)}",
-                font=("Inter", 11, "bold"),
-                bg="#d9e3f1",
-                fg=cor,
-                padx=10
-            )
-            lbl.pack(side="left", anchor="w")
-
-
 def criar_resumo_simples(container, titulo, total, comando_abrir):
     frame = ttk.Frame(container)
     frame.pack(fill="x", pady=8)
@@ -3168,7 +3085,7 @@ def editar_despesa_fixa(indice):
 
     janela = tk.Toplevel(app)
     janela.title("Editar Despesa Fixa")
-    largura, altura = 420, 300
+    largura, altura = 420, 350
     x = (janela.winfo_screenwidth() // 2) - (largura // 2)
     y = (janela.winfo_screenheight() // 2) - (altura // 2)
     janela.geometry(f"{largura}x{altura}+{x}+{y}")
@@ -3483,10 +3400,7 @@ def editar_gasto_diario(idx, callback_apos_salvar=None):
     # Tipo de gasto
     ttk.Label(main_frame, text="Tipo:", font=("Inter", 11)
               ).pack(padx=10, pady=(10, 0), anchor="w")
-    tipos_existentes = ["Alimentação", "Transporte",
-                        "Saúde", "Lazer", "Moradia", "Outros"]
-    entry_tipo = ttk.Combobox(
-        main_frame, values=tipos_existentes, font=("Inter", 10))
+    entry_tipo = ttk.Combobox(main_frame, values=tipos_gasto, font=("Inter", 10))
     entry_tipo.pack(padx=10, pady=8, fill="x")
     entry_tipo.set(gasto.get("tipo", "Outros"))
 
@@ -3640,7 +3554,6 @@ def excluir_despesa_fixa(idx):
     if chave_atual not in dados:
         return
 
-    # acessa diretamente a despesa correta
     try:
         descricao_target = dados[chave_atual]["despesas_fixas"][idx]["descricao"]
     except IndexError:
@@ -3660,20 +3573,41 @@ def excluir_despesa_fixa(idx):
     frame = tk.Frame(confirm_janela, padx=20, pady=20)
     frame.pack(fill="both", expand=True)
 
-    ttk.Label(frame, text=f"Deseja realmente excluir a despesa fixa '{descricao_target}' a partir de {mes:02d}/{ano}?",
-              font=("Inter", 11), wraplength=360, justify="center").pack(pady=15)
+    ttk.Label(
+        frame,
+        text=f"Deseja realmente excluir a despesa fixa '{descricao_target}' "
+        f"a partir de {mes:02d}/{ano} (mês atual) e todos os meses futuros?",
+        font=("Inter", 11),
+        wraplength=360,
+        justify="center"
+    ).pack(pady=15)
 
     def confirmar():
-        for ano_loop in range(ano, 2101):
-            for mes_loop in range(1, 13):
-                if ano_loop == ano and mes_loop < mes:
-                    continue
-                chave = get_chave(mes_loop, ano_loop)
-                if chave in dados:
-                    dados[chave]["despesas_fixas"] = [
-                        d for d in dados[chave]["despesas_fixas"]
-                        if d.get("descricao") != descricao_target
-                    ]
+        a = ano
+        m = mes
+        # percorre mês a mês a partir do atual, criando meses futuros se necessário
+        while a <= 2100:  # pode colocar qualquer limite que desejar
+            chave = (m, a)
+            # inicializa mês se não existir
+            if chave not in dados:
+                inicializar_mes(m, a)
+            # remove a despesa fixa se existir
+            dados[chave]["despesas_fixas"] = [
+                d for d in dados[chave]["despesas_fixas"]
+                if d.get("descricao") != descricao_target
+            ]
+            # avança para o próximo mês
+            m += 1
+            if m > 12:
+                m = 1
+                a += 1
+
+        # salva e atualiza a interface
+        try:
+            salvar_dados()
+        except NameError:
+            pass
+
         atualizar_resumo()
         confirm_janela.destroy()
 
