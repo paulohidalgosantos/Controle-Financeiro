@@ -26,12 +26,13 @@ import threading
 
 VERSAO_ATUAL = "1.1.3"
 
-def buscar_atualizacao(app):
-    """Verifica atualização no GitHub e aplica com log contínuo."""
+def buscar_atualizacao(app, ao_fechar):
+    """Verifica atualização no GitHub e aplica log contínuo e seguro, fechando o app via ao_fechar()."""
     try:
         import urllib.request, tempfile, threading, subprocess, sys, os
         from tkinter import scrolledtext, messagebox, ttk, Toplevel, Label, END
         from datetime import datetime
+        import time
 
         # Diretório de log
         log_dir = os.path.join(os.path.expanduser("~"), "ControleFinanceiroLogs")
@@ -42,8 +43,11 @@ def buscar_atualizacao(app):
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             linha = f"[{ts}] {msg}"
             print(linha)
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(linha + "\n")
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(linha + "\n")
+            except:
+                pass
 
         escrever_log("Iniciando verificação de atualização...")
 
@@ -81,63 +85,141 @@ def buscar_atualizacao(app):
             def log(self, msg):
                 ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 linha = f"[{ts}] {msg}"
-                self.text.configure(state="normal")
-                self.text.insert(END, linha + "\n")
-                self.text.configure(state="disabled")
-                self.text.see(END)
+                try:
+                    if self.root.winfo_exists():  # só escreve se a janela existir
+                        self.text.configure(state="normal")
+                        self.text.insert(END, linha + "\n")
+                        self.text.configure(state="disabled")
+                        self.text.see(END)
+                        self.root.update()
+                except:
+                    pass
                 escrever_log(msg)
 
             def fechar(self):
-                self.root.after(0, self.root.destroy)
+                try:
+                    if self.root.winfo_exists():
+                        self.root.after(0, self.root.destroy)
+                except:
+                    pass
 
         gui = UpdaterGUI()
 
         def atualizar_thread():
             try:
-                gui.log("Criando diretório temporário...")
+                gui.log("Criando diretório temporário para download...")
                 temp_dir = tempfile.mkdtemp()
-                temp_exe = os.path.join(temp_dir, "Controle.Financeiro.exe")
-                gui.log(f"Temp dir: {temp_dir}")
 
-                url_download = f"https://github.com/paulohidalgosantos/Controle-Financeiro/releases/download/v{versao_online}/Controle.Financeiro.exe"
-                gui.log(f"Baixando: {url_download}")
-                urllib.request.urlretrieve(url_download, temp_exe)
-                gui.log("Download concluído.")
-
-                exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+                # Detectar caminho do executável atual
+                if getattr(sys, 'frozen', False):
+                    exe_path = sys.executable
+                else:
+                    exe_path = os.path.abspath(__file__)
+                
+                exe_path = os.path.normpath(exe_path)
+                exe_dir = os.path.dirname(exe_path)
+                exe_name = os.path.basename(exe_path)
+                
                 gui.log(f"Exe atual: {exe_path}")
-                gui.log(f"Novo exe temporário: {temp_exe}")
+                gui.log(f"Diretório: {exe_dir}")
+                gui.log(f"Nome: {exe_name}")
 
-                # Criação do BAT
+                # Download do novo exe
+                nome_exe_release = "Controle.Financeiro.exe"
+                temp_exe = os.path.join(temp_dir, nome_exe_release)
+                
+                url_download = f"https://github.com/paulohidalgosantos/Controle-Financeiro/releases/download/v{versao_online}/{nome_exe_release}"
+                gui.log(f"Baixando de: {url_download}")
+                gui.log(f"Salvando em: {temp_exe}")
+                
+                urllib.request.urlretrieve(url_download, temp_exe)
+                
+                if os.path.exists(temp_exe):
+                    size = os.path.getsize(temp_exe)
+                    gui.log(f"Download concluído. Tamanho: {size} bytes")
+                else:
+                    gui.log("ERRO: Arquivo não foi baixado")
+                    return
+
+                # Criar BAT melhorado
                 bat_path = os.path.join(temp_dir, "update.bat")
-                with open(bat_path, "w", encoding="utf-8") as f:
-                    f.write(f"""@echo off
-chcp 65001 >nul
-set "old_exe={exe_path}"
-set "new_exe={temp_exe}"
-set "log_path={log_path}"
+                processo_nome = exe_name if exe_name.endswith('.exe') else f"{exe_name}.exe"
+                
+                conteudo_bat = f"""@echo off
+chcp 65001 >nul 2>&1
+echo === INICIO DA ATUALIZACAO === >> "{log_path}"
+echo Processo: {processo_nome} >> "{log_path}"
+echo Exe atual: {exe_path} >> "{log_path}"
+echo Novo exe: {temp_exe} >> "{log_path}"
+
+echo Aguardando fechamento do processo... >> "{log_path}"
+timeout /t 3 /nobreak >nul
 
 :WAIT_LOOP
-tasklist /FI "IMAGENAME eq {os.path.basename(exe_path)}" 2>nul | find /I "{os.path.basename(exe_path)}" >nul
+tasklist /FI "IMAGENAME eq {processo_nome}" 2>nul | find /I "{processo_nome}" >nul
 if %ERRORLEVEL%==0 (
-    timeout /t 1 >nul
+    echo Processo ainda ativo, aguardando... >> "{log_path}"
+    timeout /t 2 /nobreak >nul
     goto WAIT_LOOP
 )
 
-if exist "%old_exe%" move /y "%old_exe%" "%old_exe%.bak" >> "%log_path%" 2>&1
-move /y "%new_exe%" "%old_exe%" >> "%log_path%" 2>&1
-start "" "%old_exe%" >> "%log_path%" 2>&1
-del "%~f0"
-""")
+echo Processo fechado, iniciando substituicao... >> "{log_path}"
+
+REM Backup do arquivo antigo
+if exist "{exe_path}" (
+    echo Fazendo backup do arquivo antigo... >> "{log_path}"
+    move "{exe_path}" "{exe_path}.bak" >> "{log_path}" 2>&1
+)
+
+REM Copiar novo arquivo
+copy "{temp_exe}" "{exe_path}" >> "{log_path}" 2>&1
+
+echo Iniciando aplicacao atualizada... >> "{log_path}"
+timeout /t 2 /nobreak >nul
+
+cd /d "{exe_dir}"
+
+REM Se for exe GUI (PyInstaller --noconsole)
+start "" "{exe_path}" >> "{log_path}" 2>&1
+
+REM Se for .pyw (opcional, se não tiver exe)
+REM start "" pythonw "{exe_path}" >> "{log_path}" 2>&1
+
+timeout /t 5 /nobreak >nul
+
+
+echo === FIM DA ATUALIZACAO === >> "{log_path}"
+rd /s /q "{temp_dir}" >> "{log_path}" 2>&1
+del "%~f0" >> "{log_path}" 2>&1
+
+"""
+                with open(bat_path, "w", encoding="utf-8") as f:
+                    f.write(conteudo_bat)
+                
                 gui.log(f"BAT criado: {bat_path}")
-                gui.log("Fechando app para atualização...")
+
+                time.sleep(1)
+                gui.log("Preparando para atualizar...")
+
+                # Fecha GUI
                 gui.fechar()
-                app.quit()
-                subprocess.Popen(["cmd", "/c", bat_path], shell=True)
-                sys.exit()
+                time.sleep(0.5)
+
+                # Depois da GUI fechada → só escrever log em arquivo
+                escrever_log(f"Executando BAT: {bat_path}")
+                subprocess.Popen(bat_path, shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                escrever_log("BAT iniciado com sucesso")
+
+                try:
+                    escrever_log("Salvando dados e fechando aplicação...")
+                    ao_fechar()
+                except Exception as e:
+                    escrever_log(f"Erro ao fechar com ao_fechar: {e}")
+
+                sys.exit(0)
 
             except Exception as e:
-                gui.log(f"ERRO: {e}")
+                escrever_log(f"ERRO na atualização: {e}")
 
         threading.Thread(target=atualizar_thread, daemon=True).start()
         gui.root.mainloop()
@@ -574,6 +656,12 @@ def centralizar_janela(janela, largura, altura):
     y = (janela.winfo_screenheight() // 2) - (altura // 2)
     janela.geometry(f"{largura}x{altura}+{x}+{y}")
 
+# Ao fechar o app
+def ao_fechar():
+    salvar_dados()
+    app.destroy()
+
+
 
 def criar_menu():
     menubar = tk.Menu(app, bg="#f8f9fa", fg="#495057", activebackground="#e9ecef", activeforeground="#212529",
@@ -587,7 +675,7 @@ def criar_menu():
         (" 👥     Gerenciar Usuários", gerenciar_usuarios),
         (" 💳    Gerenciar Cartões", gerenciar_cartoes),
         (" 📂     Categorias de Gastos", abrir_gerenciador_categorias),
-        (" 🔄     Buscar Atualização", partial(buscar_atualizacao, app)),
+        (" 🔄     Buscar Atualização",  partial(buscar_atualizacao, app, ao_fechar)),
         (" 🗑️ Zerar Aplicativo", zerar_tudo),
         (" 📤     Exportar Dados", exportar_dados),
         (" 📥     Importar Dados", importar_dados),
@@ -1488,13 +1576,6 @@ def gerenciar_usuarios():
 
 # Chamada para montar o menu na inicialização
 criar_menu()
-
-
-# Ao fechar o app
-def ao_fechar():
-    salvar_dados()
-    app.destroy()
-
 
 app.protocol("WM_DELETE_WINDOW", ao_fechar)
 

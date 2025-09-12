@@ -52,7 +52,7 @@ datas = [
 
 # --------- Analysis ----------
 a = Analysis(
-    ['Controle Financeiro.py'],  # seu script principal com espaço no nome
+    ['Controle Financeiro.pyw'],  # seu script principal com espaço no nome
     pathex=[project_dir],
     binaries=dlls_to_include,
     datas=datas,
@@ -81,6 +81,6 @@ exe = EXE(
     strip=False,
     upx=True,
     upx_exclude=[dll[0] for dll in dlls_to_include],
-    console=True,  # console ativo para debug; depois pode trocar para False
+    console=False,  # console ativo para debug; depois pode trocar para False
     icon=icon_path
 )
